@@ -1,7 +1,7 @@
 {
-  "name": "Suivi Alimentaire — Omar & Meryem",
-  "short_name": "Suivi Alim.",
-  "description": "Suivi nutritionnel local pour Omar et Meryem",
+  "name": "Se7a w ya se7a, ya li 3dowt molaha...",
+  "short_name": "Se7a",
+  "description": "Suivi nutritionnel pour Omar et Meryem",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
