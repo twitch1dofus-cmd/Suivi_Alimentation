@@ -382,6 +382,7 @@ function defaultMicrosFor(){
 }
 function renderObjectifs(){
   const app = document.getElementById('app');
+  app.innerHTML = '';
   const p = state.profilActif;
   const o = state.objectifs[p];
   const targets = computeTargets(p);
@@ -502,6 +503,7 @@ function renderObjectifs(){
 /* ============================= TAB: ALIMENTS ============================= */
 function renderAliments(){
   const app = document.getElementById('app');
+  app.innerHTML = '';
   const editingId = renderAliments._editingId || null;
   const editing = editingId ? state.aliments.find(a=>a.id===editingId) : null;
   const wrap = document.createElement('div');
@@ -587,6 +589,7 @@ function renderAliments(){
 /* ============================= TAB: MODÈLES DE REPAS ============================= */
 function renderModeles(){
   const app = document.getElementById('app');
+  app.innerHTML = '';
   const wrap = document.createElement('div');
   wrap.innerHTML = `<div class="card"><h2>Modèles de repas</h2>
     <p class="muted" style="font-size:.82rem;margin-top:-6px;">Construis des repas prédéfinis à partir de tes aliments. Ils seront ensuite sélectionnables directement dans l'onglet Repas.</p>
@@ -660,6 +663,7 @@ function renderModeles(){
 /* ============================= TAB: REPAS (JOURNAL) ============================= */
 function renderRepas(){
   const app = document.getElementById('app');
+  app.innerHTML = '';
   if(!renderRepas._date) renderRepas._date = todayISO();
   const date = renderRepas._date, personne = state.profilActif;
 
@@ -754,6 +758,7 @@ function renderRepas(){
 /* ============================= TAB: SUIVI QUOTIDIEN ============================= */
 function renderSuivi(){
   const app = document.getElementById('app');
+  app.innerHTML = '';
   if(!renderSuivi._date) renderSuivi._date = todayISO();
   const date = renderSuivi._date, personne = state.profilActif;
 
