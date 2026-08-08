@@ -80,6 +80,16 @@
   .profile-bar label{color:#e0e7ff;font-size:.78rem;margin:0;white-space:nowrap;}
   .profile-bar select{width:auto;min-width:140px;background:#fff;color:var(--ink);}
   .profile-bar .btn{background:rgba(255,255,255,.2);border:1px solid rgba(255,255,255,.5);padding:6px 10px;font-size:.8rem;}
+  .voice-fab{position:fixed;bottom:calc(20px + env(safe-area-inset-bottom));right:20px;width:60px;height:60px;border-radius:50%;background:var(--accent);color:#fff;border:none;font-size:1.6rem;box-shadow:0 4px 14px rgba(0,0,0,.35);cursor:pointer;z-index:1000;display:flex;align-items:center;justify-content:center;padding:0;}
+  .voice-fab:hover{background:var(--accent-dark);}
+  .voice-fab.listening{background:#dc2626;animation:voicePulse 1.2s infinite;}
+  @keyframes voicePulse{0%{box-shadow:0 0 0 0 rgba(220,38,38,.6);}70%{box-shadow:0 0 0 18px rgba(220,38,38,0);}100%{box-shadow:0 0 0 0 rgba(220,38,38,0);}}
+  .voice-listening{position:fixed;bottom:calc(90px + env(safe-area-inset-bottom));right:20px;background:#111827;color:#fff;padding:8px 14px;border-radius:8px;font-size:.82rem;z-index:1000;}
+  .voice-modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;z-index:1100;padding:16px;}
+  .voice-modal-box{background:#fff;border-radius:10px;padding:20px;max-width:420px;width:100%;max-height:80vh;overflow-y:auto;}
+  .voice-modal-box h3{margin:0 0 10px;font-size:1.05rem;}
+  .voice-modal-box b{color:var(--accent-dark);}
+  .voice-modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:16px;}
 </style>
 </head>
 <body>
@@ -102,6 +112,19 @@
 <main id="app"></main>
 <div class="save-flash" id="saveFlash">Sauvegardé</div>
 <footer>Fichier local — aucune donnée envoyée sur internet. Fais une copie de sauvegarde du fichier de temps en temps.</footer>
+
+<button id="voiceFab" class="voice-fab" title="Commande vocale" aria-label="Commande vocale">🎤</button>
+<div id="voiceListening" class="voice-listening" style="display:none;">🎙️ Je t'écoute…</div>
+<div id="voiceModal" class="voice-modal-overlay" style="display:none;">
+  <div class="voice-modal-box">
+    <h3 id="voiceModalTitle">Confirmer</h3>
+    <div id="voiceModalBody"></div>
+    <div class="voice-modal-actions">
+      <button class="btn secondary" id="voiceCancelBtn">Annuler</button>
+      <button class="btn" id="voiceConfirmBtn">✅ Valider</button>
+    </div>
+  </div>
+</div>
 
 <script>
 /* ============================= DONNÉES DE DÉPART ============================= */
@@ -830,6 +853,290 @@ function setPoidsReel(personne, date, val){
   else e.reel = val;
 }
 
+/* ============================= COMMANDES VOCALES ============================= */
+// Reconnaissance vocale (Web Speech API) : disponible nativement sur Chrome/Android.
+// Sur iPhone, Safari le supporte depuis iOS 14.5+ mais avec un support parfois limité
+// une fois l'appli installée sur l'écran d'accueil — à tester sur l'appareil.
+function normalizeVoice(s){
+  return (s||'')
+    .toLowerCase()
+    .normalize('NFD').replace(/[̀-ͯ]/g,'') // enlève les accents pour un matching plus robuste
+    .replace(/['’]/g,' ')
+    .replace(/[.,;:!?]/g,' ')
+    .replace(/\s+/g,' ')
+    .trim();
+}
+function voiceExtractNumber(text){
+  const m = text.match(/(\d+)\s*virgule\s*(\d+)/);
+  if(m) return parseFloat(m[1]+'.'+m[2]);
+  const m2 = text.match(/(\d+(?:[.,]\d+)?)/);
+  if(m2) return parseFloat(m2[1].replace(',', '.'));
+  return null;
+}
+const VOICE_METRIC_MAP = [
+  ['kcal',   ['kcal','calorie','calories','kilocalorie','kilocalories']],
+  ['prot',   ['proteine','proteines']],
+  ['gluc',   ['glucide','glucides','sucre','sucres']],
+  ['lip',    ['lipide','lipides','graisse','graisses']],
+  ['fibres', ['fibre','fibres']],
+  ['na',     ['sodium','sel']],
+  ['ca',     ['calcium']],
+  ['fe',     ['fer']],
+  ['mg',     ['magnesium']],
+  ['zn',     ['zinc']],
+  ['k',      ['potassium']],
+  ['vitc',   ['vitamine c']],
+  ['vitd',   ['vitamine d']],
+  ['vita',   ['vitamine a']],
+  ['vite',   ['vitamine e']],
+  ['vitb12', ['vitamine b12','b12']]
+];
+const VOICE_METRIC_WORDS_RE = '(?:kcal|calories?|kilocalories?|proteines?|glucides?|sucres?|lipides?|graisses?|fibres?|sodium|sel|calcium|fer|magnesium|zinc|potassium|vitamine [a-e]|vitamine b12)';
+function voiceExtractMetrics(text){
+  const found = {};
+  VOICE_METRIC_MAP.forEach(([key, words])=>{
+    words.forEach(w=>{
+      if(found[key]!==undefined) return;
+      const re1 = new RegExp('(\\d+(?:[.,]\\d+)?)\\s*(?:g|grammes?|mg|microgrammes?)?\\s*(?:de\\s+)?'+w);
+      const re2 = new RegExp(w+'\\s*(?:de)?\\s*(\\d+(?:[.,]\\d+)?)');
+      const m = text.match(re1) || text.match(re2);
+      if(m) found[key] = parseFloat(m[1].replace(',', '.'));
+    });
+  });
+  return found;
+}
+function voiceFindAliment(spokenName){
+  const words = normalizeVoice(spokenName).split(' ').filter(w=>w.length>=3);
+  if(!words.length) return null;
+  let best=null, bestScore=0;
+  state.aliments.forEach(a=>{
+    const nn = normalizeVoice(a.nom);
+    let score=0;
+    words.forEach(w=>{ if(nn.includes(w)) score++; });
+    if(score>bestScore){ bestScore=score; best=a; }
+  });
+  return bestScore>0 ? best : null;
+}
+function voiceFindCreneau(text){
+  const map = [
+    ['petit dejeuner','Petit-déjeuner'],
+    ['dejeuner','Déjeuner'],
+    ['diner','Dîner'],
+    ['premiere collation','Collation 1'],
+    ['collation 1','Collation 1'],
+    ['deuxieme collation','Collation 2'],
+    ['collation 2','Collation 2'],
+    ['collation','Collation 1']
+  ];
+  for(const [k,v] of map){ if(text.includes(k)) return v; }
+  return null;
+}
+
+// Analyse la phrase selon l'onglet actif et renvoie {ok, resume, appliquer()} (ok:true)
+// ou {ok:false, resume:"message"} si la commande n'a pas été comprise.
+function parseVoiceCommand(tab, rawText){
+  const text = normalizeVoice(rawText);
+
+  if(tab==='objectifs'){
+    const m = text.match(/(?:nouveau|ajoute(?:r)?|cree(?:r)?)\s+(?:un\s+|le\s+)?profil\s+(.+)/) || text.match(/profil\s+(.+)/);
+    let nom = m ? m[1].trim() : '';
+    if(!nom) return {ok:false, resume:"Je n'ai pas compris le nom du profil. Dis par exemple : « nouveau profil Sami »."};
+    nom = nom.replace(/\s+/g,' ').trim();
+    nom = nom.charAt(0).toUpperCase()+nom.slice(1);
+    if(state.profils.map(p=>p.toLowerCase()).includes(nom.toLowerCase())){
+      return {ok:false, resume:`Un profil « ${nom} » existe déjà.`};
+    }
+    return {
+      ok:true,
+      resume:`Créer un nouveau profil : <b>${nom}</b> (objectifs par défaut, à ajuster ensuite dans l'onglet Objectifs).`,
+      appliquer(){
+        state.profils.push(nom);
+        state.objectifs[nom] = defaultObjectifsFor();
+        state.micros[nom] = defaultMicrosFor();
+        state.profilActif = nom;
+        save(); renderAll();
+      }
+    };
+  }
+
+  if(tab==='aliments'){
+    const isEdit = /modifi/.test(text);
+    const metrics = voiceExtractMetrics(text);
+    let cat = null;
+    const catM = text.match(/categorie\s+([a-z]+)/);
+    if(catM) cat = catM[1];
+    const metricPhraseRe = new RegExp('\\d+(?:[.,]\\d+)?\\s*(?:g|grammes?|mg|microgrammes?)?\\s*(?:de\\s+)?'+VOICE_METRIC_WORDS_RE, 'g');
+    let nameText = text
+      .replace(/^(ajoute|ajouter|nouveau|nouvel|cree|creer|modifie|modifier)\s+(un\s+|le\s+|la\s+)?(aliment\s+)?/, '')
+      .replace(/categorie\s+[a-z]+/, '')
+      .replace(metricPhraseRe, '')
+      .replace(/\s+/g,' ')
+      .trim();
+
+    if(isEdit){
+      const target = voiceFindAliment(nameText || text);
+      if(!target) return {ok:false, resume:"Je n'ai pas trouvé cet aliment dans ta base. Vérifie le nom, ou modifie-le manuellement depuis le tableau."};
+      const changes = Object.keys(metrics);
+      if(!changes.length) return {ok:false, resume:`J'ai reconnu l'aliment « ${target.nom} » mais aucune valeur à modifier. Dis par exemple : « modifie ${target.nom} 200 calories ».`};
+      const detail = changes.map(k=>{
+        const meta = METRICS.find(mm=>mm.key===k);
+        return `${meta.label} : ${fmt(target[k],meta.dec)} → <b>${fmt(metrics[k],meta.dec)}</b>`;
+      }).join('<br>');
+      return {
+        ok:true,
+        resume:`Modifier <b>${target.nom}</b> :<br>${detail}`,
+        appliquer(){
+          changes.forEach(k=> target[k]=metrics[k]);
+          save(); if(currentTab==='aliments') renderAliments();
+        }
+      };
+    } else {
+      const nom = nameText;
+      if(!nom) return {ok:false, resume:"Je n'ai pas compris le nom de l'aliment. Dis par exemple : « ajoute un aliment Poulet grillé 165 calories 31 grammes de protéines »."};
+      const capNom = nom.charAt(0).toUpperCase()+nom.slice(1);
+      const detail = METRICS.map(m=> `${m.label} : <b>${fmt(metrics[m.key]||0,m.dec)}${m.unit}</b>`).join('<br>');
+      return {
+        ok:true,
+        resume:`Ajouter l'aliment <b>${capNom}</b> (catégorie : ${cat ? cat.charAt(0).toUpperCase()+cat.slice(1) : 'Autre'}) :<br>${detail}<br><span class="muted" style="font-size:.78rem;">Valeurs non citées à l'oral = 0, modifiables ensuite via "✏️ Modifier".</span>`,
+        appliquer(){
+          const obj = {id:uid('al'), nom:capNom, cat: cat ? cat.charAt(0).toUpperCase()+cat.slice(1) : 'Autre'};
+          METRICS.forEach(m=> obj[m.key] = metrics[m.key]||0);
+          state.aliments.push(obj);
+          save(); if(currentTab==='aliments') renderAliments();
+        }
+      };
+    }
+  }
+
+  if(tab==='modeles'){
+    const nameM = text.match(/modele\s*(?:de repas)?\s*([a-z0-9 ]*?)(?:\s+avec\s+|,|$)/);
+    let nom = nameM ? nameM[1].trim() : '';
+    if(!nom) nom = 'Nouveau modèle (voix)';
+    nom = nom.charAt(0).toUpperCase()+nom.slice(1);
+    const afterAvec = text.includes(' avec ') ? text.split(' avec ')[1] : text;
+    const segments = afterAvec.split(/,| et /).map(s=>s.trim()).filter(Boolean);
+    const ingredients = [];
+    const nonReconnus = [];
+    segments.forEach(seg=>{
+      const qte = voiceExtractNumber(seg);
+      const nameSeg = seg.replace(/\d+(?:[.,]\d+)?/,'').replace(/grammes?|g\b/,'').replace(/de\s+/,'').replace(/\s+/g,' ').trim();
+      if(!nameSeg) return;
+      const al = voiceFindAliment(nameSeg);
+      if(al) ingredients.push({ingredient: al.nom, qte: qte||100});
+      else nonReconnus.push(nameSeg);
+    });
+    if(!ingredients.length) return {ok:false, resume:"Je n'ai reconnu aucun ingrédient de ta base. Dis par exemple : « crée un modèle Bowl poulet riz avec 150 grammes de poulet et 100 grammes de riz »."};
+    const detail = ingredients.map(i=>`${i.qte} g — ${i.ingredient}`).join('<br>');
+    const warn = nonReconnus.length ? `<br><span class="muted" style="font-size:.78rem;">Non reconnus (ignorés) : ${nonReconnus.join(', ')}</span>` : '';
+    return {
+      ok:true,
+      resume:`Créer le modèle <b>${nom}</b> avec :<br>${detail}${warn}`,
+      appliquer(){
+        state.modeles.push({id:uid('mo'), nom, ingredients});
+        save(); if(currentTab==='modeles') renderModeles();
+      }
+    };
+  }
+
+  if(tab==='repas'){
+    const qte = voiceExtractNumber(text) || 100;
+    const creneau = voiceFindCreneau(text) || CRENEAUX[0];
+    let nameText = text
+      .replace(/^(ajoute|ajouter|mange|j ai mange)\s*/, '')
+      .replace(/\d+(?:[.,]\d+)?\s*(g|grammes?)?/, '')
+      .replace(/(au petit dejeuner|au dejeuner|au diner|en collation|premiere collation|deuxieme collation|collation [12]|au|a la|a)\b/g, '')
+      .replace(/\s+/g,' ')
+      .trim();
+    const al = voiceFindAliment(nameText);
+    if(!al) return {ok:false, resume:"Je n'ai pas trouvé cet aliment dans ta base. Vérifie le nom, ou ajoute-le d'abord dans l'onglet Aliments."};
+    const date = renderRepas._date || todayISO();
+    const personne = state.profilActif;
+    return {
+      ok:true,
+      resume:`Ajouter au journal de <b>${personne}</b> (${date}, ${creneau}) :<br><b>${al.nom}</b> — ${qte} g`,
+      appliquer(){
+        state.journal.push({id:uid('j'), date, personne, creneau, type:'aliment', ref:al.nom, qte});
+        save(); if(currentTab==='repas') renderRepas();
+      }
+    };
+  }
+
+  if(tab==='suivi'){
+    const val = voiceExtractNumber(text);
+    if(!val) return {ok:false, resume:"Je n'ai pas compris le poids. Dis par exemple : « 75 virgule 2 kilos »."};
+    const date = renderSuivi._date || todayISO();
+    const personne = state.profilActif;
+    return {
+      ok:true,
+      resume:`Enregistrer le poids réel de <b>${personne}</b> le ${date} : <b>${fmt(val,1)} kg</b>`,
+      appliquer(){
+        setPoidsReel(personne, date, val);
+        save(); if(currentTab==='suivi') renderSuivi();
+      }
+    };
+  }
+
+  return {ok:false, resume:"Commande vocale non disponible sur cet onglet."};
+}
+
+let voiceRecognition = null;
+function showVoiceModal(transcript, result){
+  const overlay = document.getElementById('voiceModal');
+  const title = document.getElementById('voiceModalTitle');
+  const body = document.getElementById('voiceModalBody');
+  const confirmBtn = document.getElementById('voiceConfirmBtn');
+  title.textContent = result.ok ? 'Confirmer la commande vocale' : "Je n'ai pas compris";
+  body.innerHTML = `<p class="muted" style="font-size:.78rem;">Transcription : « ${transcript} »</p><div>${result.resume}</div>`;
+  confirmBtn.style.display = result.ok ? '' : 'none';
+  overlay.style.display = 'flex';
+  confirmBtn.onclick = ()=>{
+    if(result.ok) result.appliquer();
+    overlay.style.display = 'none';
+  };
+}
+function initVoice(){
+  const Rec = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const fab = document.getElementById('voiceFab');
+  const listeningEl = document.getElementById('voiceListening');
+  if(!Rec){
+    fab.title = "Reconnaissance vocale non supportée par ce navigateur";
+    fab.addEventListener('click', ()=> alert("La reconnaissance vocale n'est pas supportée par ce navigateur. Essaie avec Chrome sur Android. Sur iPhone, le support de Safari est plus limité une fois l'appli installée sur l'écran d'accueil."));
+    return;
+  }
+  voiceRecognition = new Rec();
+  voiceRecognition.lang = 'fr-FR';
+  voiceRecognition.continuous = false;
+  voiceRecognition.interimResults = false;
+
+  voiceRecognition.addEventListener('start', ()=>{
+    fab.classList.add('listening');
+    listeningEl.style.display = 'block';
+  });
+  voiceRecognition.addEventListener('end', ()=>{
+    fab.classList.remove('listening');
+    listeningEl.style.display = 'none';
+  });
+  voiceRecognition.addEventListener('error', (e)=>{
+    fab.classList.remove('listening');
+    listeningEl.style.display = 'none';
+    if(e.error!=='no-speech' && e.error!=='aborted'){
+      alert("Erreur de reconnaissance vocale : "+e.error);
+    }
+  });
+  voiceRecognition.addEventListener('result', (e)=>{
+    const transcript = e.results[0][0].transcript;
+    const result = parseVoiceCommand(currentTab, transcript);
+    showVoiceModal(transcript, result);
+  });
+
+  fab.addEventListener('click', ()=>{
+    try{ voiceRecognition.start(); }catch(e){ /* déjà en cours d'écoute, on ignore */ }
+  });
+  document.getElementById('voiceCancelBtn').addEventListener('click', ()=>{
+    document.getElementById('voiceModal').style.display = 'none';
+  });
+}
+
 /* ============================= EXPORT / IMPORT ============================= */
 function exportBackup(){
   const blob = new Blob([JSON.stringify(state, null, 2)], {type:'application/json'});
@@ -929,6 +1236,7 @@ if('serviceWorker' in navigator && (location.protocol==='https:' || location.hos
 /* ============================= INIT ============================= */
 renderAll();
 initCloudSync();
+initVoice();
 </script>
 </body>
 </html>
