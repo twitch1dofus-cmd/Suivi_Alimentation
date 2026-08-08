@@ -111,9 +111,6 @@
   <p>Version site local — les données sont sauvegardées automatiquement dans ce navigateur</p>
   <div class="header-actions">
     <button class="btn" id="btnRefresh">🔄 Rafraîchir</button>
-    <button class="btn" id="btnExport">⬇️ Exporter une sauvegarde</button>
-    <button class="btn" id="btnImport">⬆️ Importer une sauvegarde</button>
-    <input type="file" id="fileImport" accept="application/json" style="display:none;">
     <span id="cloudStatus" style="align-self:center;font-size:.78rem;margin-left:4px;"></span>
   </div>
   <div class="profile-bar">
@@ -178,6 +175,60 @@ const MACRO_KEYS = ['kcal','prot','gluc','lip','fibres'];
 const CRENEAUX = ['Petit-déjeuner','Déjeuner','Dîner','Collation 1','Collation 2'];
 const STORAGE_KEY = 'suiviAlimentaireData_v1';
 
+/* ============================= EXERCICES (dépense calorique) ============================= */
+// Valeurs MET (Metabolic Equivalent of Task) issues du "Compendium of Physical Activities" —
+// référence standard utilisée pour estimer une dépense calorique à partir d'une activité.
+// Formule : kcal = MET × poids (kg) × durée (heures).
+// Pour les sports à intensité variable, plusieurs niveaux de MET sont proposés.
+const SPORTS = [
+  {id:'course',    label:'🏃 Course à pied',  intensites:[{label:'Footing léger',met:7},{label:'Modéré',met:9.8},{label:'Rapide',met:11.5},{label:'Sprint / fractionné',met:14}]},
+  {id:'marche',     label:'🚶 Marche',         intensites:[{label:'Tranquille',met:3},{label:'Normale',met:3.5},{label:'Rapide',met:4.3},{label:'Randonnée (terrain varié)',met:6}]},
+  {id:'velo',       label:'🚴 Vélo',           intensites:[{label:'Balade tranquille',met:4},{label:'Modéré',met:8},{label:'Soutenu',met:10},{label:'Course / compétition',met:12}]},
+  {id:'natation',   label:'🏊 Natation',       intensites:[{label:'Tranquille',met:6},{label:'Modérée',met:8.3},{label:'Intense',met:10}]},
+  {id:'velo_salle',  label:'🚲 Vélo d’appartement', intensites:[{label:'Léger',met:5.5},{label:'Modéré',met:7},{label:'Intense (spinning)',met:10.5}]},
+  {id:'rameur',     label:'🚣 Rameur',         intensites:[{label:'Léger',met:4.8},{label:'Modéré',met:7},{label:'Intense',met:8.5}]},
+  {id:'corde',      label:'🪢 Corde à sauter', intensites:[{label:'Rythme lent',met:8.8},{label:'Rythme rapide',met:12.3}]},
+  {id:'foot',       label:'⚽ Football',       intensites:[{label:'Loisir',met:7},{label:'Compétitif',met:10}]},
+  {id:'basket',     label:'🏀 Basketball',     intensites:[{label:'Loisir',met:6.5},{label:'Compétitif',met:8}]},
+  {id:'tennis',     label:'🎾 Tennis',         intensites:[{label:'Double',met:6},{label:'Simple',met:8}]},
+  {id:'boxe',       label:'🥊 Boxe',           intensites:[{label:'Sac / technique',met:7.8},{label:'Sparring intense',met:12.8}]},
+  {id:'yoga',       label:'🧘 Yoga',           intensites:[{label:'Doux / Hatha',met:2.5},{label:'Vinyasa / dynamique',met:4}]},
+  {id:'hiit',       label:'🔥 HIIT / Cross-training', intensites:[{label:'Modéré',met:8},{label:'Intense',met:12}]},
+  {id:'foot_us',    label:'🏈 Sport collectif (autre)', intensites:[{label:'Loisir',met:6},{label:'Compétitif',met:9}]},
+  {id:'danse',      label:'💃 Danse',          intensites:[{label:'Tranquille',met:3.5},{label:'Dynamique',met:6}]},
+  {id:'muscu',      label:'🏋️ Musculation',    muscu:true},
+];
+// Mouvements de musculation courants, pour préciser ce qui a été travaillé (informatif).
+const MUSCU_MOUVEMENTS = [
+  'Développé couché','Développé militaire','Squat','Soulevé de terre','Tractions',
+  'Rowing barre','Presse à cuisses','Curl biceps','Extension triceps','Fentes',
+  'Développé incliné','Hip thrust','Gainage / abdos','Autre'
+];
+// MET de base pour la musculation (résistance modérée), ajusté ensuite selon l'intensité
+// perçue (poids soulevé rapporté au poids de corps) — c'est une estimation, pas une mesure exacte.
+function musculationMET(poidsUtilise, poidsCorps){
+  const base = 5; // résistance modérée, effort général (référence Compendium)
+  if(!poidsUtilise || !poidsCorps) return base;
+  const ratio = poidsUtilise / poidsCorps;
+  if(ratio >= 1.25) return 8;   // charge lourde par rapport au poids de corps
+  if(ratio >= 0.75) return 6.5; // charge conséquente
+  if(ratio >= 0.4)  return 5.5; // charge modérée
+  return base;                   // charge légère
+}
+function computeExerciceKcal(ex, poidsCorps){
+  if(ex.sport==='muscu'){
+    const met = musculationMET(ex.poidsUtilise, poidsCorps);
+    return met * (poidsCorps||70) * ((ex.duree||0)/60);
+  }
+  const sport = SPORTS.find(s=>s.id===ex.sport);
+  const met = (sport && sport.intensites && sport.intensites[ex.intensiteIdx||0]) ? sport.intensites[ex.intensiteIdx||0].met : 5;
+  return met * (poidsCorps||70) * ((ex.duree||0)/60);
+}
+function computeExerciseKcalDay(personne, dateISO){
+  const list = state.exercices.filter(e=>e.personne===personne && e.date===dateISO);
+  return list.reduce((sum,e)=> sum + (e.kcal||0), 0);
+}
+
 /* ============================= ÉTAT ============================= */
 function blankMetrics(){ const o={}; METRICS.forEach(m=>o[m.key]=0); return o; }
 
@@ -189,13 +240,14 @@ function defaultState(){
     modeles: SEED_MODELES.map((m,i)=>({id:'mo'+i, nom:m.nom, ingredients:(m.ingredients||[]).map(ig=>({...ig}))})),
     journal: [],
     poids: [],
+    exercices: [],
     profils: Object.keys(SEED_OBJECTIFS),
     profilActif: Object.keys(SEED_OBJECTIFS)[0]
   };
 }
 
-// Comble les champs manquants (profils / profilActif) sur un état existant, pour rester
-// compatible avec les données déjà sauvegardées (local ou cloud) avant l'ajout multi-profils.
+// Comble les champs manquants (profils / profilActif / exercices) sur un état existant, pour
+// rester compatible avec les données déjà sauvegardées (local ou cloud) avant ces ajouts.
 function normalizeState(s){
   if(!s.profils || !Array.isArray(s.profils) || !s.profils.length){
     s.profils = Object.keys(s.objectifs||{});
@@ -204,6 +256,7 @@ function normalizeState(s){
   if(!s.profilActif || !s.profils.includes(s.profilActif)){
     s.profilActif = s.profils[0];
   }
+  if(!Array.isArray(s.exercices)) s.exercices = [];
   return s;
 }
 
@@ -342,6 +395,46 @@ function poidsCible(personne, dateISO){
 function getAliment(nom){ return state.aliments.find(a=>a.nom===nom); }
 function getModele(nom){ return state.modeles.find(m=>m.nom===nom); }
 
+/* ============================= OPEN FOOD FACTS ============================= */
+// API publique et gratuite (world.openfoodfacts.org). Convertit un produit OFF en objet
+// aliment compatible avec notre base — seuls les champs fiables (macros + sodium) sont
+// mappés ; les micronutriments moins standardisés restent à 0 (à compléter à la main).
+function offProductToAliment(p){
+  if(!p) return null;
+  const n = p.nutriments || {};
+  const kcal = n['energy-kcal_100g'] ?? n['energy-kcal'] ?? null;
+  if(!p.product_name && kcal===null) return null;
+  const catTag = (p.categories_tags && p.categories_tags.length) ? p.categories_tags[p.categories_tags.length-1] : null;
+  return {
+    nom: (p.product_name || p.generic_name || 'Produit sans nom').trim(),
+    cat: catTag ? catTag.replace(/^\w\w:/,'').replace(/-/g,' ') : 'Autre',
+    kcal: Math.round(kcal || 0),
+    prot: n['proteins_100g'] ?? 0,
+    gluc: n['carbohydrates_100g'] ?? 0,
+    lip: n['fat_100g'] ?? 0,
+    fibres: n['fiber_100g'] ?? 0,
+    na: n['sodium_100g'] ? Math.round(n['sodium_100g']*1000) : 0
+  };
+}
+async function offSearch(query){
+  const q = query.trim();
+  if(!q) return [];
+  const isBarcode = /^\d{8,14}$/.test(q);
+  if(isBarcode){
+    const res = await fetch(`https://world.openfoodfacts.org/api/v0/product/${q}.json`);
+    const data = await res.json();
+    if(data.status===1 && data.product){
+      const al = offProductToAliment(data.product);
+      return al ? [al] : [];
+    }
+    return [];
+  }
+  const url = `https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(q)}&search_simple=1&action=process&json=1&page_size=6`;
+  const res = await fetch(url);
+  const data = await res.json();
+  return (data.products||[]).map(offProductToAliment).filter(Boolean);
+}
+
 function computeModeleTotals(modele){
   const t = blankMetrics();
   (modele.ingredients||[]).forEach(ing=>{
@@ -396,6 +489,7 @@ const TABS = [
   {id:'aliments',  label:'🥕 Aliments'},
   {id:'modeles',   label:'🍱 Modèles de repas'},
   {id:'repas',     label:'📅 Repas'},
+  {id:'exercices', label:'🏋️ Exercices'},
   {id:'suivi',     label:'📊 Suivi quotidien'}
 ];
 let currentTab = 'objectifs';
@@ -410,7 +504,7 @@ function renderProfileBar(){
   sel.innerHTML = state.profils.map(p=>`<option value="${p}" ${p===state.profilActif?'selected':''}>${p}</option>`).join('');
 }
 function renderAll(){ renderProfileBar(); renderNav(); document.getElementById('app').innerHTML=''; ROUTES[currentTab](); }
-const ROUTES = { objectifs:renderObjectifs, aliments:renderAliments, modeles:renderModeles, repas:renderRepas, suivi:renderSuivi };
+const ROUTES = { objectifs:renderObjectifs, aliments:renderAliments, modeles:renderModeles, repas:renderRepas, exercices:renderExercices, suivi:renderSuivi };
 
 /* ============================= TAB: OBJECTIFS ============================= */
 function defaultObjectifsFor(){
@@ -552,6 +646,15 @@ function renderAliments(){
     <div class="tablewrap"><table id="alTable"></table></div>
   </div>
   <div class="card">
+    <h2>🔎 Chercher sur Open Food Facts</h2>
+    <p class="muted" style="font-size:.82rem;margin-top:-6px;">Nom du produit ou code-barres — préremplit automatiquement le formulaire ci-dessous (kcal, protéines, glucides, lipides, fibres, sodium). Vérifie toujours les valeurs avant d'ajouter.</p>
+    <div class="row">
+      <div class="field"><input type="text" id="off_query" placeholder="ex: yaourt grec nature, ou 3017620422003"></div>
+      <button class="btn secondary" id="off_search" style="align-self:flex-end;">🔍 Chercher</button>
+    </div>
+    <div id="off_results"></div>
+  </div>
+  <div class="card">
     <h2>${editing ? '✏️ Modifier l’aliment : ' + editing.nom : 'Ajouter un aliment'}</h2>
     <div class="row" id="alFormRow1">
       <div class="field"><label>Nom</label><input id="af_nom" type="text" placeholder="Nom du produit" value="${editing?editing.nom:''}"></div>
@@ -594,6 +697,42 @@ function renderAliments(){
       renderAliments();
     });
   }
+
+  // Recherche Open Food Facts
+  const offResults = wrap.querySelector('#off_results');
+  async function runOffSearch(){
+    const q = wrap.querySelector('#off_query').value.trim();
+    if(!q){ offResults.innerHTML = ''; return; }
+    offResults.innerHTML = `<p class="muted" style="font-size:.82rem;">Recherche en cours…</p>`;
+    try{
+      const found = await offSearch(q);
+      if(!found.length){
+        offResults.innerHTML = `<p class="muted" style="font-size:.82rem;">Aucun résultat. Tu peux remplir le formulaire à la main ci-dessous.</p>`;
+        return;
+      }
+      offResults.innerHTML = found.map((p,idx)=>`
+        <div class="out" style="align-items:center;">
+          <span>${p.nom} <span class="tag">${p.cat}</span> — ${fmt(p.kcal,0)} kcal /100g</span>
+          <button class="btn small" data-useoff="${idx}">Utiliser</button>
+        </div>`).join('');
+      offResults.querySelectorAll('[data-useoff]').forEach(b=>{
+        b.addEventListener('click', ()=>{
+          const p = found[b.dataset.useoff];
+          wrap.querySelector('#af_nom').value = p.nom;
+          wrap.querySelector('#af_cat').value = p.cat;
+          METRICS.forEach(m=>{
+            const el = wrap.querySelector('#af_'+m.key);
+            if(el && p[m.key]!==undefined) el.value = p[m.key];
+          });
+        });
+      });
+    }catch(err){
+      console.warn('OFF search failed', err);
+      offResults.innerHTML = `<p class="muted" style="font-size:.82rem;">Recherche indisponible (pas de connexion ou service momentanément hors service). Remplis le formulaire à la main.</p>`;
+    }
+  }
+  wrap.querySelector('#off_search').addEventListener('click', runOffSearch);
+  wrap.querySelector('#off_query').addEventListener('keydown', (e)=>{ if(e.key==='Enter'){ e.preventDefault(); runOffSearch(); } });
 
   function renderTable(filter){
     const table = wrap.querySelector('#alTable');
@@ -702,16 +841,151 @@ function renderModeles(){
   });
 }
 
+/* ============================= TAB: EXERCICES ============================= */
+function renderExercices(){
+  const app = document.getElementById('app');
+  app.innerHTML = '';
+  if(!renderExercices._date) renderExercices._date = todayISO();
+  const date = renderExercices._date;
+  const personne = state.profilActif;
+  const poidsCorps = (state.objectifs[personne] && state.objectifs[personne].poids) || 70;
+
+  const wrap = document.createElement('div');
+  wrap.innerHTML = `<div class="card">
+    <h2>Ajouter un exercice</h2>
+    <p class="muted" style="font-size:.82rem;margin-top:-6px;">Les calories brûlées sont une estimation (méthode MET), ajoutée à ton objectif calorique du jour dans l'onglet Suivi quotidien.</p>
+    <div class="row">
+      <div class="field"><label>Date</label><input type="date" id="ex_date" value="${date}"></div>
+      <div class="field"><label>Sport</label><select id="ex_sport">${SPORTS.map(s=>`<option value="${s.id}">${s.label}</option>`).join('')}</select></div>
+    </div>
+    <div class="row" id="ex_dynFields"></div>
+    <div class="row">
+      <div class="field"><label>Durée (minutes)</label><input type="number" id="ex_duree" value="30" min="1"></div>
+      <div class="field" id="ex_kcalPreview" style="align-self:flex-end;"><div class="out"><span>Estimation</span><b id="ex_kcalOut">–</b></div></div>
+    </div>
+    <button class="btn" id="ex_add">+ Ajouter l'exercice</button>
+  </div>
+  <div class="card">
+    <h2>Exercices du ${date} — ${personne}</h2>
+    <div class="tablewrap"><table id="ex_table"></table></div>
+    <div class="out" style="margin-top:10px;" id="ex_total"></div>
+  </div>`;
+  app.appendChild(wrap);
+
+  const sportSel = wrap.querySelector('#ex_sport');
+  const dynFields = wrap.querySelector('#ex_dynFields');
+  const dureeInp = wrap.querySelector('#ex_duree');
+  const kcalOut = wrap.querySelector('#ex_kcalOut');
+
+  function currentSport(){ return SPORTS.find(s=>s.id===sportSel.value); }
+
+  function refreshDynFields(){
+    const sport = currentSport();
+    if(sport.muscu){
+      dynFields.innerHTML = `
+        <div class="field"><label>Mouvement</label><select id="ex_mouvement">${MUSCU_MOUVEMENTS.map(m=>`<option>${m}</option>`).join('')}</select></div>
+        <div class="field"><label>Nombre de séries</label><input type="number" id="ex_series" value="4" min="1"></div>
+        <div class="field"><label>Poids utilisé (kg)</label><input type="number" step="0.5" id="ex_poidsUtilise" value="20" min="0"></div>`;
+    } else {
+      dynFields.innerHTML = `<div class="field"><label>Intensité</label><select id="ex_intensite">${sport.intensites.map((it,idx)=>`<option value="${idx}">${it.label}</option>`).join('')}</select></div>`;
+    }
+    dynFields.querySelectorAll('input,select').forEach(el=> el.addEventListener('input', refreshPreview));
+    refreshPreview();
+  }
+
+  function buildExerciceFromForm(){
+    const sport = currentSport();
+    const duree = parseFloat(dureeInp.value)||0;
+    if(sport.muscu){
+      return {
+        sport: sport.id,
+        mouvement: wrap.querySelector('#ex_mouvement').value,
+        series: parseInt(wrap.querySelector('#ex_series').value,10)||0,
+        poidsUtilise: parseFloat(wrap.querySelector('#ex_poidsUtilise').value)||0,
+        duree
+      };
+    }
+    return {
+      sport: sport.id,
+      intensiteIdx: parseInt(wrap.querySelector('#ex_intensite').value,10)||0,
+      duree
+    };
+  }
+
+  function refreshPreview(){
+    const ex = buildExerciceFromForm();
+    const kcal = computeExerciceKcal(ex, poidsCorps);
+    kcalOut.textContent = `~ ${fmt(kcal,0)} kcal brûlées`;
+  }
+
+  sportSel.addEventListener('change', refreshDynFields);
+  dureeInp.addEventListener('input', refreshPreview);
+  refreshDynFields();
+
+  wrap.querySelector('#ex_date').addEventListener('change', e=>{ renderExercices._date = e.target.value; renderExercices(); });
+
+  wrap.querySelector('#ex_add').addEventListener('click', ()=>{
+    const base = buildExerciceFromForm();
+    if(!base.duree || base.duree<=0){ alert('Indique une durée en minutes.'); return; }
+    const kcal = computeExerciceKcal(base, poidsCorps);
+    const entry = Object.assign({id:uid('ex'), personne, date}, base, {kcal});
+    state.exercices.push(entry);
+    save();
+    renderExercices();
+  });
+
+  // liste du jour
+  const table = wrap.querySelector('#ex_table');
+  const list = state.exercices.filter(e=>e.personne===personne && e.date===date);
+  const sportLabel = (id)=> (SPORTS.find(s=>s.id===id)||{}).label || id;
+  let rows = `<tr><th>Sport</th><th>Détails</th><th>Durée</th><th>Kcal brûlées</th><th></th></tr>`;
+  rows += list.map(e=>{
+    const detail = e.sport==='muscu'
+      ? `${e.mouvement} · ${e.series} séries · ${fmt(e.poidsUtilise,1)} kg`
+      : (SPORTS.find(s=>s.id===e.sport)?.intensites?.[e.intensiteIdx]?.label || '');
+    return `<tr><td>${sportLabel(e.sport)}</td><td>${detail}</td><td>${fmt(e.duree,0)} min</td><td><b>${fmt(e.kcal,0)}</b></td>
+      <td><button class="btn danger small" data-delex="${e.id}">✕</button></td></tr>`;
+  }).join('');
+  table.innerHTML = rows;
+  table.querySelectorAll('[data-delex]').forEach(b=>{
+    b.addEventListener('click', ()=>{
+      if(!confirm('Supprimer cet exercice ?')) return;
+      state.exercices = state.exercices.filter(e=>e.id!==b.dataset.delex);
+      save(); renderExercices();
+    });
+  });
+  const totalKcal = list.reduce((s,e)=> s+(e.kcal||0), 0);
+  wrap.querySelector('#ex_total').innerHTML = list.length
+    ? `<span><strong>TOTAL BRÛLÉ CE JOUR</strong></span><b>${fmt(totalKcal,0)} kcal</b>`
+    : `<span class="muted">Aucun exercice enregistré pour cette date.</span>`;
+}
+
 /* ============================= TAB: REPAS (JOURNAL) ============================= */
+// Rappel doux (pas de notification système) : signale un créneau probable non encore loggé
+// aujourd'hui, en se basant sur l'heure locale. Ne s'affiche que sur la date du jour.
+function mealReminderMessage(personne){
+  if(renderRepas._date !== todayISO()) return null;
+  const hour = new Date().getHours();
+  let creneau = null;
+  if(hour>=7 && hour<11) creneau = 'Petit-déjeuner';
+  else if(hour>=11 && hour<15) creneau = 'Déjeuner';
+  else if(hour>=18 && hour<22) creneau = 'Dîner';
+  if(!creneau) return null;
+  const already = state.journal.some(j=>j.personne===personne && j.date===todayISO() && j.creneau===creneau);
+  if(already) return null;
+  return `🔔 Tu n'as encore rien loggé pour le ${creneau.toLowerCase()} aujourd'hui.`;
+}
 function renderRepas(){
   const app = document.getElementById('app');
   app.innerHTML = '';
   if(!renderRepas._date) renderRepas._date = todayISO();
   const date = renderRepas._date, personne = state.profilActif;
+  const reminder = mealReminderMessage(personne);
 
   const wrap = document.createElement('div');
   wrap.innerHTML = `<div class="card">
     <h2>Journal des repas</h2>
+    ${reminder ? `<div class="out" style="background:#fff7ed;color:#7c2d12;margin-bottom:10px;"><span>${reminder}</span></div>` : ''}
     <div class="row">
       <div class="field"><label>Date</label><input type="date" id="rp_date" value="${date}"></div>
       <div class="field"><label>Personne</label><div class="out" style="margin:0;"><span>Profil actif</span><b>${personne}</b></div></div>
@@ -799,6 +1073,66 @@ function renderRepas(){
 }
 
 /* ============================= TAB: SUIVI QUOTIDIEN ============================= */
+function buildWeightChartSVG(personne, poidsList){
+  if(poidsList.length < 2) return '<p class="muted" style="font-size:.82rem;">Ajoute au moins deux pesées pour voir apparaître un graphique.</p>';
+  const W = 640, H = 220, padL = 34, padR = 10, padT = 12, padB = 24;
+  const cibles = poidsList.map(p=> poidsCible(personne, p.date));
+  const reels = poidsList.map(p=> p.reel);
+  const all = cibles.concat(reels);
+  let minV = Math.min(...all), maxV = Math.max(...all);
+  if(minV===maxV){ minV -= 1; maxV += 1; }
+  const pad = (maxV-minV)*0.15 || 1;
+  minV -= pad; maxV += pad;
+  const n = poidsList.length;
+  const x = (i)=> padL + (n<=1 ? 0 : (i/(n-1)) * (W-padL-padR));
+  const y = (v)=> padT + (1 - (v-minV)/(maxV-minV)) * (H-padT-padB);
+  const cibPts = cibles.map((v,i)=> `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
+  const reelPts = reels.map((v,i)=> `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
+  const dots = reels.map((v,i)=> `<circle cx="${x(i).toFixed(1)}" cy="${y(v).toFixed(1)}" r="3" fill="#2563eb"></circle>`).join('');
+  const firstDate = poidsList[0].date, lastDate = poidsList[n-1].date;
+  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;max-height:240px;">
+    <polyline points="${cibPts}" fill="none" stroke="#94a3b8" stroke-width="2" stroke-dasharray="5,4"/>
+    <polyline points="${reelPts}" fill="none" stroke="#2563eb" stroke-width="2.5"/>
+    ${dots}
+    <text x="${padL}" y="${H-6}" font-size="11" fill="#6b7280">${firstDate}</text>
+    <text x="${W-padR}" y="${H-6}" font-size="11" fill="#6b7280" text-anchor="end">${lastDate}</text>
+  </svg>
+  <div class="legend" style="margin-top:2px;">
+    <span><i class="dot" style="background:#2563eb;"></i> Poids réel</span>
+    <span><i class="dot" style="background:#94a3b8;"></i> Poids cible</span>
+  </div>`;
+}
+function computeAverages(personne, refDateISO, days){
+  const end = new Date(refDateISO);
+  const dates = [];
+  for(let i=0;i<days;i++){
+    const d = new Date(end); d.setDate(d.getDate()-i);
+    dates.push(d.toISOString().slice(0,10));
+  }
+  const withData = dates.filter(d=> state.journal.some(j=>j.personne===personne && j.date===d));
+  if(!withData.length) return null;
+  const sums = blankMetrics();
+  withData.forEach(d=>{
+    const t = computeDayTotals(personne, d);
+    MACRO_KEYS.forEach(k=> sums[k]+=t[k]);
+  });
+  const n = withData.length;
+  const avg = {}; MACRO_KEYS.forEach(k=> avg[k]=sums[k]/n);
+  return {avg, joursCouverts:n, joursTotal:days};
+}
+function renderAveragesHTML(personne, targets){
+  const periods = [{label:'7 derniers jours', days:7}, {label:'30 derniers jours', days:30}];
+  return periods.map(p=>{
+    const res = computeAverages(personne, renderSuivi._date || todayISO(), p.days);
+    if(!res) return `<div class="field"><h3>${p.label}</h3><p class="muted" style="font-size:.82rem;">Pas encore de repas enregistrés sur cette période.</p></div>`;
+    const rows = MACRO_KEYS.map(k=>{
+      const meta = METRICS.find(m=>m.key===k);
+      const cls = colorClass(meta.type, targets[k], res.avg[k]);
+      return `<div class="out ${cls}"><span>${meta.label} (moy./j)</span><b>${fmt(res.avg[k],meta.dec)}${meta.unit} <span class="muted" style="font-weight:400;">/ ${fmt(targets[k],meta.dec)}${meta.unit}</span></b></div>`;
+    }).join('');
+    return `<div class="field"><h3>${p.label} <span class="muted" style="font-size:.75rem;">(${res.joursCouverts}/${res.joursTotal} jours loggés)</span></h3>${rows}</div>`;
+  }).join('');
+}
 function renderSuivi(){
   const app = document.getElementById('app');
   app.innerHTML = '';
@@ -819,10 +1153,16 @@ function renderSuivi(){
       <div class="field"><label>Personne</label><div class="out" style="margin:0;"><span>Profil actif</span><b>${personne}</b></div></div>
       <div class="field"><label>Poids réel (kg)</label><input type="number" step="0.1" id="sv_poids" value="${getPoidsReel(personne,date)}"></div>
     </div>
+    <div id="sv_exBanner"></div>
     <div class="tablewrap"><table id="sv_table"></table></div>
   </div>
-  <div class="card"><h2>Historique du poids — ${personne}</h2>
-    <div class="tablewrap"><table id="sv_history"></table></div>
+  <div class="card"><h2>Moyennes — ${personne}</h2>
+    <p class="muted" style="font-size:.82rem;margin-top:-6px;">Utile pour juger la tendance plutôt qu'un seul jour : un déficit calorique se lit sur la durée.</p>
+    <div class="grid2" id="sv_averages"></div>
+  </div>
+  <div class="card"><h2>Évolution du poids — ${personne}</h2>
+    <div id="sv_chart"></div>
+    <div class="tablewrap" style="margin-top:12px;"><table id="sv_history"></table></div>
   </div>`;
   app.appendChild(wrap);
 
@@ -834,6 +1174,14 @@ function renderSuivi(){
 
   const targets = computeTargets(personne);
   const actual = computeDayTotals(personne, date);
+  const exKcal = computeExerciseKcalDay(personne, date);
+  const kcalCibleAjustee = targets.kcal + exKcal;
+
+  const exBanner = wrap.querySelector('#sv_exBanner');
+  exBanner.innerHTML = exKcal > 0
+    ? `<div class="out" style="background:#eef2ff;margin-bottom:10px;"><span>🏋️ Calories brûlées aujourd'hui (onglet Exercices)</span><b>+${fmt(exKcal,0)} kcal → objectif ajusté : ${fmt(kcalCibleAjustee,0)} kcal</b></div>`
+    : '';
+
   const table = wrap.querySelector('#sv_table');
   let rows = `<tr><th>Métrique</th><th>Cible</th><th>Réel</th><th>Écart</th></tr>`;
   const pCible = poidsCible(personne, date);
@@ -841,16 +1189,21 @@ function renderSuivi(){
   const poidsClass = pReel ? (Math.abs(pReel-pCible)<=0.5?'cell-green':(Math.abs(pReel-pCible)<=1.5?'cell-orange':'cell-red')) : '';
   rows += `<tr class="${poidsClass}"><td><strong>Poids (kg)</strong></td><td>${fmt(pCible,1)}</td><td>${pReel?fmt(pReel,1):'—'}</td><td>${pReel?fmt(pReel-pCible,1):'—'}</td></tr>`;
   METRICS.forEach(m=>{
-    const cible = targets[m.key];
+    const cible = m.key==='kcal' ? kcalCibleAjustee : targets[m.key];
     const reel = actual[m.key];
     const cls = colorClass(m.type, cible, reel);
-    rows += `<tr class="${cls}"><td>${m.label} ${m.unit?'('+m.unit+')':''}</td><td>${fmt(cible,m.dec)}</td><td>${fmt(reel,m.dec)}</td><td>${fmt(reel-cible,m.dec)}</td></tr>`;
+    const labelExtra = m.key==='kcal' && exKcal>0 ? ' <span class="muted" style="font-size:.72rem;">(ajustée sport)</span>' : '';
+    rows += `<tr class="${cls}"><td>${m.label}${labelExtra} ${m.unit?'('+m.unit+')':''}</td><td>${fmt(cible,m.dec)}</td><td>${fmt(reel,m.dec)}</td><td>${fmt(reel-cible,m.dec)}</td></tr>`;
   });
   table.innerHTML = rows;
 
-  // history
-  const hist = wrap.querySelector('#sv_history');
+  // moyennes
+  wrap.querySelector('#sv_averages').innerHTML = renderAveragesHTML(personne, targets);
+
+  // historique + graphique du poids
   const poidsList = state.poids.filter(p=>p.personne===personne).sort((a,b)=>a.date.localeCompare(b.date));
+  wrap.querySelector('#sv_chart').innerHTML = buildWeightChartSVG(personne, poidsList);
+  const hist = wrap.querySelector('#sv_history');
   if(!poidsList.length){
     hist.innerHTML = `<tr><td class="muted">Aucune pesée enregistrée.</td></tr>`;
   } else {
@@ -1280,49 +1633,7 @@ function initVoice(){
   });
 }
 
-/* ============================= EXPORT / IMPORT ============================= */
-function exportBackup(){
-  const blob = new Blob([JSON.stringify(state, null, 2)], {type:'application/json'});
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  const stamp = new Date().toISOString().slice(0,19).replace(/[:T]/g,'-');
-  a.href = url;
-  a.download = `suivi_alimentaire_sauvegarde_${stamp}.json`;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
-}
-function importBackup(file){
-  const reader = new FileReader();
-  reader.onload = function(e){
-    let parsed;
-    try{
-      parsed = JSON.parse(e.target.result);
-    }catch(err){
-      alert("Ce fichier n'est pas un JSON valide, import annulé.");
-      return;
-    }
-    if(!parsed || !Array.isArray(parsed.aliments) || !parsed.objectifs){
-      alert("Ce fichier ne ressemble pas à une sauvegarde de ce site (structure inattendue), import annulé.");
-      return;
-    }
-    if(!confirm("Importer cette sauvegarde va REMPLACER toutes les données actuelles de ce navigateur (aliments, repas, poids, objectifs). Continuer ?")){
-      return;
-    }
-    state = parsed;
-    // combler d'éventuels champs manquants pour compatibilité future
-    if(!state.journal) state.journal = [];
-    if(!state.poids) state.poids = [];
-    if(!state.modeles) state.modeles = [];
-    if(!state.micros) state.micros = JSON.parse(JSON.stringify(SEED_MICROS));
-    state = normalizeState(state);
-    save();
-    alert("Sauvegarde importée avec succès.");
-    renderAll();
-  };
-  reader.readAsText(file);
-}
+/* ============================= RAFRAÎCHISSEMENT ============================= */
 async function manualRefresh(){
   const btn = document.getElementById('btnRefresh');
   const original = btn.textContent;
@@ -1362,12 +1673,6 @@ document.getElementById('globalProfil').addEventListener('change', (e)=>{
   save(); renderAll();
 });
 document.getElementById('btnRefresh').addEventListener('click', manualRefresh);
-document.getElementById('btnExport').addEventListener('click', exportBackup);
-document.getElementById('btnImport').addEventListener('click', ()=> document.getElementById('fileImport').click());
-document.getElementById('fileImport').addEventListener('change', (e)=>{
-  if(e.target.files && e.target.files[0]) importBackup(e.target.files[0]);
-  e.target.value = '';
-});
 
 /* ============================= PWA (service worker) ============================= */
 if('serviceWorker' in navigator && (location.protocol==='https:' || location.hostname==='localhost')){
