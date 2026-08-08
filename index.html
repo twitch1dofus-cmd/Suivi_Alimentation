@@ -10,6 +10,8 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="mobile-web-app-capable" content="yes">
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore-compat.js"></script>
 <style>
   :root{
     --bg:#f4f6f8; --card:#ffffff; --ink:#1f2937; --muted:#6b7280; --border:#e2e8f0;
@@ -84,6 +86,7 @@
     <button class="btn" id="btnExport">⬇️ Exporter une sauvegarde</button>
     <button class="btn" id="btnImport">⬆️ Importer une sauvegarde</button>
     <input type="file" id="fileImport" accept="application/json" style="display:none;">
+    <span id="cloudStatus" style="align-self:center;font-size:.78rem;margin-left:4px;"></span>
   </div>
 </header>
 <nav id="tabs"></nav>
@@ -154,12 +157,89 @@ function load(){
   return defaultState();
 }
 let saveTimer=null;
+let cloudWriteTimer=null;
+let applyingRemoteUpdate=false; // évite les boucles quand une mise à jour vient du cloud
 function save(){
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
   const flash = document.getElementById('saveFlash');
   flash.classList.add('show');
   clearTimeout(saveTimer);
   saveTimer = setTimeout(()=>flash.classList.remove('show'), 900);
+  if(!applyingRemoteUpdate) scheduleCloudWrite();
+}
+
+/* ============================= SYNCHRONISATION CLOUD (Firebase) ============================= */
+// Remplis FIREBASE_CONFIG avec les valeurs de TON projet Firebase (Console > Paramètres du projet > Config SDK).
+// Laisse apiKey vide (chaîne "") pour désactiver la synchronisation et rester en local uniquement.
+const FIREBASE_CONFIG = {
+  apiKey: "AIzaSyCGcLMn-GEnm-QtOPmP3uisDhmIPxTmrBo",
+  authDomain: "suivi-alimentaire-fa6a3.firebaseapp.com",
+  projectId: "suivi-alimentaire-fa6a3",
+  storageBucket: "suivi-alimentaire-fa6a3.firebasestorage.app",
+  messagingSenderId: "1004640078056",
+  appId: "1:1004640078056:web:71023a2e049088bba0a15d"
+};
+const CLOUD_DOC_PATH = { collection: 'suivi', doc: 'partage' }; // document unique partagé entre les deux téléphones
+let cloudEnabled = !!FIREBASE_CONFIG.apiKey;
+let cloudDb = null, cloudDocRef = null;
+let cloudStatus = cloudEnabled ? 'connecting' : 'disabled'; // 'connecting' | 'online' | 'offline' | 'disabled'
+
+function setCloudStatus(s){
+  cloudStatus = s;
+  const el = document.getElementById('cloudStatus');
+  if(!el) return;
+  const map = {
+    connecting: ['🔄 Connexion…', ''],
+    online: ['☁️ Synchronisé', 'color:#bbf7d0;'],
+    offline: ['📴 Hors ligne (local uniquement)', 'color:#fecaca;'],
+    disabled: ['💾 Local uniquement (Firebase non configuré)', 'color:#fde68a;']
+  };
+  const [txt, style] = map[s] || map.disabled;
+  el.textContent = txt;
+  el.style.cssText = style;
+}
+
+function initCloudSync(){
+  if(!cloudEnabled){ setCloudStatus('disabled'); return; }
+  try{
+    firebase.initializeApp(FIREBASE_CONFIG);
+    cloudDb = firebase.firestore();
+    cloudDocRef = cloudDb.collection(CLOUD_DOC_PATH.collection).doc(CLOUD_DOC_PATH.doc);
+    setCloudStatus('connecting');
+    cloudDocRef.onSnapshot((snap)=>{
+      if(snap.exists){
+        const remote = snap.data();
+        if(remote && remote.payload){
+          applyingRemoteUpdate = true;
+          try{
+            state = JSON.parse(remote.payload);
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+            renderAll();
+          } finally { applyingRemoteUpdate = false; }
+        }
+      } else {
+        // premier lancement : on pousse l'état local actuel comme référence initiale
+        scheduleCloudWrite(true);
+      }
+      setCloudStatus('online');
+    }, (err)=>{
+      console.warn('Firestore sync error', err);
+      setCloudStatus('offline');
+    });
+  }catch(e){
+    console.warn('Firebase init failed', e);
+    setCloudStatus('offline');
+  }
+}
+function scheduleCloudWrite(immediate){
+  if(!cloudEnabled || !cloudDocRef) return;
+  clearTimeout(cloudWriteTimer);
+  const doWrite = ()=>{
+    cloudDocRef.set({ payload: JSON.stringify(state), updatedAt: Date.now() })
+      .then(()=> setCloudStatus('online'))
+      .catch((err)=>{ console.warn('Firestore write error', err); setCloudStatus('offline'); });
+  };
+  if(immediate) doWrite(); else cloudWriteTimer = setTimeout(doWrite, 600);
 }
 function uid(prefix){ return prefix + Math.random().toString(36).slice(2,9); }
 function todayISO(){ const d=new Date(); return d.toISOString().slice(0,10); }
@@ -714,6 +794,7 @@ if('serviceWorker' in navigator && (location.protocol==='https:' || location.hos
 
 /* ============================= INIT ============================= */
 renderAll();
+initCloudSync();
 </script>
 </body>
 </html>
