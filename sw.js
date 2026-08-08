@@ -1,4 +1,6 @@
-const CACHE_NAME = 'suivi-alimentaire-v1';
+// Incrémente ce numéro à chaque mise à jour de l'appli : ça force le navigateur
+// à détecter un nouveau service worker et à purger l'ancien cache automatiquement.
+const CACHE_NAME = 'suivi-alimentaire-v2';
 const ASSETS = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', (event) => {
@@ -17,15 +19,14 @@ self.addEventListener('activate', (event) => {
   self.clients.claim();
 });
 
+// Stratégie "réseau d'abord" pour les pages/scripts : on récupère toujours la dernière
+// version en ligne quand c'est possible, et on ne retombe sur le cache que hors connexion.
 self.addEventListener('fetch', (event) => {
   event.respondWith(
-    caches.match(event.request).then((cached) => {
-      if (cached) return cached;
-      return fetch(event.request).then((resp) => {
-        const copy = resp.clone();
-        caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy)).catch(()=>{});
-        return resp;
-      }).catch(() => cached);
-    })
+    fetch(event.request).then((resp) => {
+      const copy = resp.clone();
+      caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy)).catch(()=>{});
+      return resp;
+    }).catch(() => caches.match(event.request))
   );
 });
