@@ -668,7 +668,10 @@ function renderModeles(){
         inp.addEventListener('change', ()=>{ mo.ingredients[inp.dataset.idx].qte = parseFloat(inp.value)||0; save(); refreshTotals(); });
       });
       ingsDiv.querySelectorAll('[data-rming]').forEach(b=>{
-        b.addEventListener('click', ()=>{ mo.ingredients.splice(b.dataset.idx,1); save(); renderIngs(); refreshTotals(); });
+        b.addEventListener('click', ()=>{
+          if(!confirm('Retirer cet ingrédient du modèle ?')) return;
+          mo.ingredients.splice(b.dataset.idx,1); save(); renderIngs(); refreshTotals();
+        });
       });
     }
     function refreshTotals(){
@@ -788,6 +791,7 @@ function renderRepas(){
   journalDiv.innerHTML = html;
   journalDiv.querySelectorAll('[data-deljr]').forEach(b=>{
     b.addEventListener('click', ()=>{
+      if(!confirm('Supprimer cet élément du journal des repas ?')) return;
       state.journal = state.journal.filter(j=>j.id!==b.dataset.deljr);
       save(); renderRepas();
     });
@@ -1197,11 +1201,36 @@ function showVoiceModal(transcript, result){
   const confirmBtn = document.getElementById('voiceConfirmBtn');
   title.textContent = result.ok ? 'Confirmer la commande vocale' : "Je n'ai pas compris";
   body.innerHTML = `<p class="muted" style="font-size:.78rem;">Transcription : « ${transcript} »</p><div>${result.resume}</div>`;
+  confirmBtn.textContent = '✅ Valider';
   confirmBtn.style.display = result.ok ? '' : 'none';
   overlay.style.display = 'flex';
   confirmBtn.onclick = ()=>{
     if(result.ok) result.appliquer();
     overlay.style.display = 'none';
+  };
+}
+// Affiche une pop-up d'aide quand le micro est bloqué, avec les étapes pour l'autoriser
+// et un bouton pour relancer l'écoute directement une fois l'autorisation donnée.
+function showMicBlockedHelp(){
+  const overlay = document.getElementById('voiceModal');
+  const title = document.getElementById('voiceModalTitle');
+  const body = document.getElementById('voiceModalBody');
+  const confirmBtn = document.getElementById('voiceConfirmBtn');
+  title.textContent = '🎤 Micro bloqué';
+  body.innerHTML = `<div style="font-size:.85rem;line-height:1.6;">
+    L'accès au micro a été refusé pour cette appli. Pour l'autoriser :<br><br>
+    <b>Sur iPhone (Safari)</b> : appuie sur <code>aA</code> dans la barre d'adresse → <b>Réglages du site web</b> → <b>Micro</b> → Autoriser.<br>
+    (Ou : Réglages iOS → Safari → Micro → autoriser pour ce site.)<br><br>
+    <b>Sur Android (Chrome)</b> : appuie sur le 🔒 ou ⓘ à côté de l'adresse → <b>Autorisations</b> → <b>Micro</b> → Autoriser.<br>
+    (Ou : menu ⋮ → Paramètres → Paramètres du site → Micro.)<br><br>
+    Une fois autorisé, appuie sur "Réessayer" ci-dessous.
+  </div>`;
+  confirmBtn.textContent = '🔄 Réessayer';
+  confirmBtn.style.display = '';
+  overlay.style.display = 'flex';
+  confirmBtn.onclick = ()=>{
+    overlay.style.display = 'none';
+    try{ voiceRecognition.start(); }catch(e){ /* déjà en cours, on ignore */ }
   };
 }
 function initVoice(){
@@ -1231,7 +1260,9 @@ function initVoice(){
   voiceRecognition.addEventListener('error', (e)=>{
     fab.classList.remove('listening');
     syntaxPanel.style.display = 'none';
-    if(e.error!=='no-speech' && e.error!=='aborted'){
+    if(e.error==='not-allowed' || e.error==='service-not-allowed'){
+      showMicBlockedHelp();
+    } else if(e.error!=='no-speech' && e.error!=='aborted'){
       alert("Erreur de reconnaissance vocale : "+e.error);
     }
   });
