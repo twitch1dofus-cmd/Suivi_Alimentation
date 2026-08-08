@@ -23,7 +23,7 @@
   }
   *{box-sizing:border-box;}
   body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;background:var(--bg);color:var(--ink);}
-  header{background:linear-gradient(135deg,#1e40af,#2563eb);color:#fff;padding:18px 24px;}
+  header{background:linear-gradient(135deg,#1e40af,#2563eb);color:#fff;padding:18px 24px;padding-top:calc(18px + env(safe-area-inset-top));}
   header h1{margin:0;font-size:1.3rem;}
   header p{margin:4px 0 0;font-size:.85rem;opacity:.9;}
   nav{display:flex;gap:4px;background:#0f2557;padding:0 16px;overflow-x:auto;}
@@ -83,6 +83,7 @@
   <h1>🥗 Suivi Alimentaire — Omar &amp; Meryem</h1>
   <p>Version site local — les données sont sauvegardées automatiquement dans ce navigateur</p>
   <div class="header-actions">
+    <button class="btn" id="btnRefresh">🔄 Rafraîchir</button>
     <button class="btn" id="btnExport">⬇️ Exporter une sauvegarde</button>
     <button class="btn" id="btnImport">⬆️ Importer une sauvegarde</button>
     <input type="file" id="fileImport" accept="application/json" style="display:none;">
@@ -778,6 +779,41 @@ function importBackup(file){
   };
   reader.readAsText(file);
 }
+async function manualRefresh(){
+  const btn = document.getElementById('btnRefresh');
+  const original = btn.textContent;
+  btn.disabled = true; btn.textContent = '🔄 Rafraîchissement…';
+  try{
+    // 1) Recharger les données les plus récentes directement depuis Firestore (bypass cache local)
+    if(cloudEnabled && cloudDocRef){
+      const snap = await cloudDocRef.get({source:'server'});
+      if(snap.exists){
+        const remote = snap.data();
+        if(remote && remote.payload){
+          applyingRemoteUpdate = true;
+          try{
+            state = JSON.parse(remote.payload);
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+          } finally { applyingRemoteUpdate = false; }
+        }
+      }
+      setCloudStatus('online');
+    }
+    // 2) Vider le cache du service worker pour forcer le rechargement de la dernière version de l'appli
+    if('caches' in window){
+      const keys = await caches.keys();
+      await Promise.all(keys.map(k=>caches.delete(k)));
+    }
+    if('serviceWorker' in navigator){
+      const regs = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(regs.map(r=>r.update()));
+    }
+  }catch(e){
+    console.warn('refresh failed', e);
+  }
+  location.reload();
+}
+document.getElementById('btnRefresh').addEventListener('click', manualRefresh);
 document.getElementById('btnExport').addEventListener('click', exportBackup);
 document.getElementById('btnImport').addEventListener('click', ()=> document.getElementById('fileImport').click());
 document.getElementById('fileImport').addEventListener('change', (e)=>{
