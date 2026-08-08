@@ -502,10 +502,22 @@ async function offSearch(query){
     }
     return [];
   }
-  const url = `https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(q)}&search_simple=1&action=process&json=1&page_size=6`;
-  const res = await fetch(url);
-  const data = await res.json();
-  return (data.products||[]).map(offProductToAliment).filter(Boolean);
+  // API REST v2 (moderne et stable) plutôt que l'ancien cgi/search.pl, qui se montre parfois
+  // indisponible/instable selon les réseaux (notamment en mobile). En cas de souci ponctuel,
+  // on retente automatiquement avec l'ancien endpoint avant d'abandonner.
+  const urlV2 = `https://world.openfoodfacts.org/api/v2/search?search_terms=${encodeURIComponent(q)}&page_size=6&json=1`;
+  try{
+    const res = await fetch(urlV2);
+    if(!res.ok) throw new Error('HTTP '+res.status);
+    const data = await res.json();
+    return (data.products||[]).map(offProductToAliment).filter(Boolean);
+  }catch(err){
+    console.warn('OFF v2 search failed, tentative avec cgi/search.pl', err);
+    const urlLegacy = `https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(q)}&search_simple=1&action=process&json=1&page_size=6`;
+    const res2 = await fetch(urlLegacy);
+    const data2 = await res2.json();
+    return (data2.products||[]).map(offProductToAliment).filter(Boolean);
+  }
 }
 
 /* ---- Lightbox image produit (réutilisable) ---- */
