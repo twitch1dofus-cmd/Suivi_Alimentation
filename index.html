@@ -95,6 +95,22 @@
   .voice-modal-box h3{margin:0 0 10px;font-size:1.05rem;}
   .voice-modal-box b{color:var(--accent-dark);}
   .voice-modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:16px;}
+  .img-lightbox-overlay{position:fixed;inset:0;background:rgba(0,0,0,.82);display:flex;align-items:center;justify-content:center;z-index:1200;padding:20px;}
+  .img-lightbox-box{max-width:92vw;max-height:88vh;text-align:center;}
+  .img-lightbox-box img{max-width:100%;max-height:78vh;border-radius:10px;box-shadow:0 6px 24px rgba(0,0,0,.5);background:#fff;}
+  .img-lightbox-caption{color:#fff;margin-top:10px;font-size:.85rem;}
+  .img-lightbox-close{margin-top:14px;}
+  .scanner-modal-box{background:#000;border-radius:10px;padding:0;max-width:460px;width:100%;overflow:hidden;position:relative;}
+  .scanner-modal-box video{width:100%;display:block;max-height:70vh;object-fit:cover;background:#000;}
+  .scanner-modal-header{position:absolute;top:0;left:0;right:0;background:linear-gradient(180deg,rgba(0,0,0,.7),transparent);color:#fff;padding:12px 14px;font-size:.85rem;display:flex;justify-content:space-between;align-items:center;z-index:2;}
+  .scanner-modal-header button{background:rgba(255,255,255,.2);border:1px solid rgba(255,255,255,.5);color:#fff;border-radius:6px;padding:4px 10px;font-size:.8rem;cursor:pointer;}
+  .scanner-guide{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none;z-index:2;}
+  .scanner-guide-box{width:70%;height:35%;border:2px solid #22c55e;border-radius:10px;box-shadow:0 0 0 2000px rgba(0,0,0,.35);}
+  .scanner-modal-msg{padding:14px;color:#e5e7eb;font-size:.8rem;text-align:center;background:#111827;}
+  .off-result-actions{display:flex;gap:6px;}
+  .mouvement-img-wrap{margin-top:8px;text-align:center;}
+  .mouvement-img-wrap img{max-width:220px;max-height:220px;border-radius:8px;border:1px solid var(--border,#ddd);}
+  .mouvement-img-wrap .muted{font-size:.75rem;}
   .app-splash{position:fixed;inset:0;background:linear-gradient(135deg,#1e40af,#2563eb);color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:5000;transition:opacity .5s ease;padding:24px;text-align:center;}
   .app-splash.hide{opacity:0;pointer-events:none;}
   .app-splash-logo{width:96px;height:96px;border-radius:22px;object-fit:cover;box-shadow:0 6px 22px rgba(0,0,0,.4);margin-bottom:18px;}
@@ -139,10 +155,30 @@
   </div>
 </div>
 
+<div id="imgLightbox" class="img-lightbox-overlay" style="display:none;">
+  <div class="img-lightbox-box">
+    <img id="imgLightboxImg" src="" alt="Photo du produit">
+    <div class="img-lightbox-caption" id="imgLightboxCaption"></div>
+    <button class="btn secondary img-lightbox-close" id="imgLightboxClose">Fermer</button>
+  </div>
+</div>
+
+<div id="scannerModal" class="voice-modal-overlay" style="display:none;">
+  <div class="scanner-modal-box">
+    <div class="scanner-modal-header">
+      <span>📷 Scanner un code-barres</span>
+      <button id="scannerCloseBtn">✕ Fermer</button>
+    </div>
+    <video id="scannerVideo" autoplay playsinline muted></video>
+    <div class="scanner-guide"><div class="scanner-guide-box"></div></div>
+    <div class="scanner-modal-msg" id="scannerMsg">Vise le code-barres du produit…</div>
+  </div>
+</div>
+
 <script>
 /* ============================= DONNÉES DE DÉPART ============================= */
-const SEED_ALIMENTS = [{"nom": "Cookie cacao pépites sans sucres (Gerblé)", "cat": "Épicerie sucrée", "kcal": 414, "prot": 8, "gluc": 61, "sucres": 0, "lip": 18, "sat": 3.3, "fibres": 8.9, "vitc": 0, "vitd": 0, "vita": 0, "vite": 0, "vitb12": 0, "ca": 0, "fe": 0, "mg": 0, "zn": 0, "k": 0, "na": 84}, {"nom": "Cookie chocolat noisettes sans sucres (Gerblé)", "cat": "Épicerie sucrée", "kcal": 445, "prot": 8, "gluc": 64, "sucres": 0, "lip": 20, "sat": 3.6, "fibres": 6, "vitc": 0, "vitd": 0, "vita": 0, "vite": 0, "vitb12": 0, "ca": 0, "fe": 0, "mg": 0, "zn": 0, "k": 0, "na": 71}, {"nom": "Biscuit saveur coco sans sucres (Gerblé)", "cat": "Épicerie sucrée", "kcal": 427, "prot": 6.2, "gluc": 72, "sucres": 0, "lip": 15, "sat": 1.5, "fibres": 4.1, "vitc": 0, "vitd": 0, "vita": 0, "vite": 0, "vitb12": 0, "ca": 0, "fe": 0, "mg": 0, "zn": 0, "k": 0, "na": 80}, {"nom": "Moelleux pépites chocolat sans sucres (Gerblé, estimé)", "cat": "Épicerie sucrée", "kcal": 390, "prot": 6.5, "gluc": 56, "sucres": 0, "lip": 15, "sat": 3.5, "fibres": 4, "vitc": 0, "vitd": 0, "vita": 0, "vite": 0, "vitb12": 0, "ca": 0, "fe": 0, "mg": 0, "zn": 0, "k": 0, "na": 120}, {"nom": "Biscuit fourré cacao sans sucres (Gerblé)", "cat": "Épicerie sucrée", "kcal": 456, "prot": 6.9, "gluc": 64, "sucres": 0, "lip": 22, "sat": 4.8, "fibres": 3.1, "vitc": 0, "vitd": 0, "vita": 0, "vite": 0, "vitb12": 0, "ca": 0, "fe": 0, "mg": 0, "zn": 0, "k": 0, "na": 256}, {"nom": "Biscuit sésame vanille sans sucres (Gerblé, estimé)", "cat": "Épicerie sucrée", "kcal": 450, "prot": 7.5, "gluc": 64, "sucres": 0, "lip": 19, "sat": 2.5, "fibres": 5.5, "vitc": 0, "vitd": 0, "vita": 0, "vite": 0, "vitb12": 0, "ca": 0, "fe": 0, "mg": 0, "zn": 0, "k": 0, "na": 90}, {"nom": "Biscuit fondant chocolat noir sans sucres ajoutés (Gerblé, estimé)", "cat": "Épicerie sucrée", "kcal": 460, "prot": 7, "gluc": 58, "sucres": 0, "lip": 23, "sat": 8, "fibres": 5, "vitc": 0, "vitd": 0, "vita": 0, "vite": 0, "vitb12": 0, "ca": 0, "fe": 0, "mg": 0, "zn": 0, "k": 0, "na": 150}, {"nom": "Biscuit citron yuzu sans sucres (Gerblé, estimé)", "cat": "Épicerie sucrée", "kcal": 430, "prot": 6.5, "gluc": 70, "sucres": 0, "lip": 16, "sat": 2, "fibres": 4, "vitc": 0, "vitd": 0, "vita": 0, "vite": 0, "vitb12": 0, "ca": 0, "fe": 0, "mg": 0, "zn": 0, "k": 0, "na": 90}, {"nom": "Moelleux citron sans sucres (Gerblé, estimé)", "cat": "Épicerie sucrée", "kcal": 380, "prot": 6, "gluc": 58, "sucres": 0, "lip": 13, "sat": 2, "fibres": 3.5, "vitc": 0, "vitd": 0, "vita": 0, "vite": 0, "vitb12": 0, "ca": 0, "fe": 0, "mg": 0, "zn": 0, "k": 0, "na": 120}, {"nom": "Moelleux chocolat sans sucres (Gerblé, estimé)", "cat": "Épicerie sucrée", "kcal": 390, "prot": 6.5, "gluc": 55, "sucres": 0, "lip": 15, "sat": 4, "fibres": 4, "vitc": 0, "vitd": 0, "vita": 0, "vite": 0, "vitb12": 0, "ca": 0, "fe": 0, "mg": 0, "zn": 0, "k": 0, "na": 140}, {"nom": "Madeleine sans sucres La Moelleuse (Gerblé, estimé)", "cat": "Épicerie sucrée", "kcal": 420, "prot": 6, "gluc": 52, "sucres": 0, "lip": 20, "sat": 10, "fibres": 3, "vitc": 0, "vitd": 0, "vita": 0, "vite": 0, "vitb12": 0, "ca": 0, "fe": 0, "mg": 0, "zn": 0, "k": 0, "na": 150}, {"nom": "Biscuit génoise chocolat orange sans sucres (Gerblé, estimé)", "cat": "Épicerie sucrée", "kcal": 400, "prot": 7, "gluc": 58, "sucres": 0, "lip": 15, "sat": 4, "fibres": 4, "vitc": 0, "vitd": 0, "vita": 0, "vite": 0, "vitb12": 0, "ca": 0, "fe": 0, "mg": 0, "zn": 0, "k": 0, "na": 130}, {"nom": "Biscuit fourré vanille sans sucres (Gerblé, estimé)", "cat": "Épicerie sucrée", "kcal": 450, "prot": 6.5, "gluc": 62, "sucres": 0, "lip": 20, "sat": 5, "fibres": 3, "vitc": 0, "vitd": 0, "vita": 0, "vite": 0, "vitb12": 0, "ca": 0, "fe": 0, "mg": 0, "zn": 0, "k": 0, "na": 200}, {"nom": "Biscuit chocolat au lait sans sucres ajoutés (Gerblé, estimé)", "cat": "Épicerie sucrée", "kcal": 470, "prot": 7, "gluc": 58, "sucres": 0, "lip": 24, "sat": 10, "fibres": 4, "vitc": 0, "vitd": 0, "vita": 0, "vite": 0, "vitb12": 0, "ca": 0, "fe": 0, "mg": 0, "zn": 0, "k": 0, "na": 150}, {"nom": "Gâteau financier amandes sans sucres ajoutés (Gerblé, estimé)", "cat": "Épicerie sucrée", "kcal": 430, "prot": 9, "gluc": 46, "sucres": 0, "lip": 22, "sat": 6, "fibres": 3, "vitc": 0, "vitd": 0, "vita": 0, "vite": 1.5, "vitb12": 0, "ca": 40, "fe": 1, "mg": 30, "zn": 0.8, "k": 120, "na": 150}, {"nom": "Brownies chocolat sans sucres (Gerblé, Auchan, estimé)", "cat": "Épicerie sucrée", "kcal": 420, "prot": 6, "gluc": 48, "sucres": 0, "lip": 22, "sat": 8, "fibres": 4, "vitc": 0, "vitd": 0, "vita": 0, "vite": 0, "vitb12": 0, "ca": 0, "fe": 0, "mg": 0, "zn": 0, "k": 0, "na": 150}, {"nom": "Gâteau fourré saveur myrtille sans sucres ajoutés (Gerblé, Auchan)", "cat": "Épicerie sucrée", "kcal": 297, "prot": 4.1, "gluc": 55, "sucres": 2, "lip": 11, "sat": 1.1, "fibres": 9.4, "vitc": 0, "vitd": 0, "vita": 0, "vite": 0, "vitb12": 0, "ca": 0, "fe": 0, "mg": 0, "zn": 0, "k": 0, "na": 280}, {"nom": "Fromage frais St Môret Light (Ligne & Plaisir 8%MG)", "cat": "Laitier (Fromage)", "kcal": 132, "prot": 10.5, "gluc": 4.5, "sucres": 3.2, "lip": 8, "sat": 5.4, "fibres": 1.3, "vitc": 0, "vitd": 0, "vita": 0, "vite": 0, "vitb12": 0, "ca": 0, "fe": 0, "mg": 0, "zn": 0, "k": 0, "na": 360}, {"nom": "Gouda au cumin (tranches, Leclerc)", "cat": "Laitier (Fromage)", "kcal": 366, "prot": 23, "gluc": 0.5, "sucres": 0.5, "lip": 30, "sat": 21, "fibres": 0, "vitc": 0, "vitd": 0.6, "vita": 198, "vite": 0.2, "vitb12": 1.1, "ca": 700, "fe": 0.3, "mg": 28, "zn": 3, "k": 120, "na": 720}, {"nom": "Fromage à tartiner Kiri", "cat": "Laitier (Fromage)", "kcal": 305, "prot": 9, "gluc": 2, "sucres": 2, "lip": 29, "sat": 19.4, "fibres": 0, "vitc": 0, "vitd": 0.3, "vita": 250, "vite": 0.5, "vitb12": 0.3, "ca": 120, "fe": 0.1, "mg": 8, "zn": 0.5, "k": 80, "na": 560}, {"nom": "Pain de mie 100% mie complet (Harrys)", "cat": "Féculent", "kcal": 248, "prot": 9, "gluc": 43, "sucres": 4, "lip": 4.4, "sat": 0.8, "fibres": 6, "vitc": 0, "vitd": 0, "vita": 0, "vite": 0.5, "vitb12": 0, "ca": 20, "fe": 2, "mg": 50, "zn": 1.2, "k": 200, "na": 400}, {"nom": "Œufs frais plein air (Carrefour)", "cat": "Œuf", "kcal": 140, "prot": 13, "gluc": 0.5, "sucres": 0.5, "lip": 9.8, "sat": 2.6, "fibres": 0, "vitc": 0, "vitd": 2, "vita": 140, "vite": 1, "vitb12": 0.9, "ca": 50, "fe": 1.8, "mg": 12, "zn": 1.3, "k": 138, "na": 124}, {"nom": "Cottage cheese salé (Danone)", "cat": "Laitier", "kcal": 87, "prot": 12, "gluc": 1.6, "sucres": 1.6, "lip": 3.7, "sat": 2.4, "fibres": 0, "vitc": 0, "vitd": 0, "vita": 30, "vite": 0, "vitb12": 0.4, "ca": 80, "fe": 0.1, "mg": 8, "zn": 0.4, "k": 90, "na": 304}, {"nom": "Épinards hachés surgelés (Carrefour)", "cat": "Légume", "kcal": 23, "prot": 2.8, "gluc": 0.6, "sucres": 0.5, "lip": 0.9, "sat": 0.2, "fibres": 2.2, "vitc": 28, "vitd": 0, "vita": 469, "vite": 2, "vitb12": 0, "ca": 99, "fe": 2.7, "mg": 79, "zn": 0.5, "k": 450, "na": 24}, {"nom": "Avocat Haas (Carrefour)", "cat": "Fruit", "kcal": 205, "prot": 1.56, "gluc": 0.83, "sucres": 0.4, "lip": 20.6, "sat": 4.51, "fibres": 3.6, "vitc": 10, "vitd": 0, "vita": 7, "vite": 2.1, "vitb12": 0, "ca": 12, "fe": 0.6, "mg": 29, "zn": 0.6, "k": 485, "na": 6}, {"nom": "Pommes Golden Delicious", "cat": "Fruit", "kcal": 52, "prot": 0.3, "gluc": 14, "sucres": 10, "lip": 0.2, "sat": 0, "fibres": 2.4, "vitc": 5, "vitd": 0, "vita": 3, "vite": 0.2, "vitb12": 0, "ca": 6, "fe": 0.1, "mg": 5, "zn": 0.04, "k": 107, "na": 1}, {"nom": "Myrtilles", "cat": "Fruit", "kcal": 57, "prot": 0.7, "gluc": 14, "sucres": 10, "lip": 0.3, "sat": 0, "fibres": 2.4, "vitc": 10, "vitd": 0, "vita": 3, "vite": 0.6, "vitb12": 0, "ca": 6, "fe": 0.3, "mg": 6, "zn": 0.16, "k": 77, "na": 1}, {"nom": "Poire Conférence", "cat": "Fruit", "kcal": 57, "prot": 0.4, "gluc": 15, "sucres": 10, "lip": 0.1, "sat": 0, "fibres": 3.1, "vitc": 4, "vitd": 0, "vita": 1, "vite": 0.1, "vitb12": 0, "ca": 9, "fe": 0.2, "mg": 7, "zn": 0.1, "k": 116, "na": 1}, {"nom": "Bananes (Carrefour Simpl)", "cat": "Fruit", "kcal": 90, "prot": 1.06, "gluc": 19.7, "sucres": 15.6, "lip": 0.25, "sat": 0.005, "fibres": 2.7, "vitc": 9, "vitd": 0, "vita": 3, "vite": 0.1, "vitb12": 0, "ca": 5, "fe": 0.3, "mg": 27, "zn": 0.15, "k": 358, "na": 2.5}, {"nom": "Kiwi Hayward", "cat": "Fruit", "kcal": 61, "prot": 1.1, "gluc": 15, "sucres": 9, "lip": 0.5, "sat": 0, "fibres": 3, "vitc": 93, "vitd": 0, "vita": 4, "vite": 1.5, "vitb12": 0, "ca": 34, "fe": 0.3, "mg": 17, "zn": 0.14, "k": 312, "na": 3}, {"nom": "Fraises (Carrefour Classic')", "cat": "Fruit", "kcal": 32, "prot": 0.7, "gluc": 7.7, "sucres": 4.9, "lip": 0.3, "sat": 0, "fibres": 2, "vitc": 59, "vitd": 0, "vita": 1, "vite": 0.3, "vitb12": 0, "ca": 16, "fe": 0.4, "mg": 13, "zn": 0.14, "k": 153, "na": 1}, {"nom": "Graines de chia bio (Jardin Bio)", "cat": "Oléagineux/Graines", "kcal": 486, "prot": 17, "gluc": 42, "sucres": 0, "lip": 31, "sat": 3.3, "fibres": 34, "vitc": 1.6, "vitd": 0, "vita": 1, "vite": 0.5, "vitb12": 0, "ca": 631, "fe": 7.7, "mg": 335, "zn": 4.6, "k": 407, "na": 16}, {"nom": "Skyr nature (Yoplait)", "cat": "Laitier", "kcal": 57, "prot": 9.5, "gluc": 3.6, "sucres": 3.6, "lip": 0.5, "sat": 0.1, "fibres": 0, "vitc": 0, "vitd": 0, "vita": 2, "vite": 0, "vitb12": 0.5, "ca": 110, "fe": 0.1, "mg": 11, "zn": 0.5, "k": 150, "na": 56}, {"nom": "Boisson soja saveur banane (Alpro)", "cat": "Boisson végétale", "kcal": 54, "prot": 1.1, "gluc": 8.6, "sucres": 7.5, "lip": 1.5, "sat": 0.2, "fibres": 0.7, "vitc": 0, "vitd": 0.75, "vita": 0, "vite": 0.5, "vitb12": 0.38, "ca": 120, "fe": 0.2, "mg": 16, "zn": 0.3, "k": 120, "na": 45}, {"nom": "Mélange de noix grillées à sec (Bénénuts)", "cat": "Oléagineux/Graines", "kcal": 605, "prot": 21, "gluc": 21, "sucres": 6.6, "lip": 47, "sat": 6.5, "fibres": 6.8, "vitc": 0, "vitd": 0, "vita": 1, "vite": 8, "vitb12": 0, "ca": 60, "fe": 2.5, "mg": 180, "zn": 3, "k": 550, "na": 440}, {"nom": "Pistaches grillées salées (Carrefour Classic')", "cat": "Oléagineux/Graines", "kcal": 562, "prot": 21, "gluc": 28, "sucres": 7.7, "lip": 45, "sat": 5.6, "fibres": 10.3, "vitc": 2, "vitd": 0, "vita": 26, "vite": 2.3, "vitb12": 0, "ca": 110, "fe": 4, "mg": 120, "zn": 2.2, "k": 1040, "na": 400}, {"nom": "Pipas graines de tournesol salées (Ravich)", "cat": "Oléagineux/Graines", "kcal": 584, "prot": 21, "gluc": 20, "sucres": 2.6, "lip": 49, "sat": 5.2, "fibres": 8.6, "vitc": 1.4, "vitd": 0, "vita": 1, "vite": 35, "vitb12": 0, "ca": 78, "fe": 5.3, "mg": 325, "zn": 5, "k": 645, "na": 500}, {"nom": "Chocolat noir sans sucres ajoutés (Gerblé)", "cat": "Épicerie sucrée", "kcal": 462, "prot": 7.1, "gluc": 40, "sucres": 1.2, "lip": 32, "sat": 22, "fibres": 18, "vitc": 0, "vitd": 0, "vita": 10, "vite": 1, "vitb12": 0, "ca": 60, "fe": 10, "mg": 150, "zn": 3.3, "k": 600, "na": 0}, {"nom": "Dattes Deglet Nour (La Favorite)", "cat": "Fruit sec", "kcal": 282, "prot": 2.5, "gluc": 75, "sucres": 63, "lip": 0.4, "sat": 0, "fibres": 8, "vitc": 0.4, "vitd": 0, "vita": 0, "vite": 0.1, "vitb12": 0, "ca": 39, "fe": 1, "mg": 43, "zn": 0.4, "k": 656, "na": 2}, {"nom": "Cerneaux de noix (Simpl)", "cat": "Oléagineux/Graines", "kcal": 654, "prot": 15, "gluc": 14, "sucres": 2.6, "lip": 65, "sat": 6.1, "fibres": 6.7, "vitc": 1.3, "vitd": 0, "vita": 1, "vite": 0.7, "vitb12": 0, "ca": 98, "fe": 2.9, "mg": 158, "zn": 3.1, "k": 441, "na": 2}, {"nom": "Café moulu 100% Arabica (infusé, pour 100ml)", "cat": "Boisson", "kcal": 2, "prot": 0.1, "gluc": 0, "sucres": 0, "lip": 0, "sat": 0, "fibres": 0, "vitc": 0, "vitd": 0, "vita": 0, "vite": 0, "vitb12": 0, "ca": 2, "fe": 0, "mg": 5, "zn": 0.02, "k": 49, "na": 2}, {"nom": "Graines de courge bio (Jardin Bio)", "cat": "Oléagineux/Graines", "kcal": 559, "prot": 30, "gluc": 11, "sucres": 1.4, "lip": 49, "sat": 8.7, "fibres": 6, "vitc": 1.9, "vitd": 0, "vita": 1, "vite": 0.6, "vitb12": 0, "ca": 46, "fe": 8.8, "mg": 550, "zn": 7.8, "k": 809, "na": 7}, {"nom": "Graines de tournesol (Jardin Bio)", "cat": "Oléagineux/Graines", "kcal": 584, "prot": 21, "gluc": 20, "sucres": 2.6, "lip": 51, "sat": 4.5, "fibres": 8.6, "vitc": 1.4, "vitd": 0, "vita": 1, "vite": 35, "vitb12": 0, "ca": 78, "fe": 5.3, "mg": 325, "zn": 5, "k": 645, "na": 9}, {"nom": "Graines de sésame dorées (Epicea)", "cat": "Oléagineux/Graines", "kcal": 573, "prot": 18, "gluc": 23, "sucres": 0.3, "lip": 50, "sat": 7, "fibres": 12, "vitc": 0, "vitd": 0, "vita": 1, "vite": 0.25, "vitb12": 0, "ca": 975, "fe": 14.6, "mg": 351, "zn": 7.8, "k": 468, "na": 11}, {"nom": "Graines de lin brun (Jardin Bio)", "cat": "Oléagineux/Graines", "kcal": 534, "prot": 18, "gluc": 29, "sucres": 1.6, "lip": 42, "sat": 3.7, "fibres": 27, "vitc": 0.6, "vitd": 0, "vita": 0, "vite": 0.3, "vitb12": 0, "ca": 255, "fe": 5.7, "mg": 392, "zn": 4.3, "k": 813, "na": 30}, {"nom": "Salade sucrine", "cat": "Légume", "kcal": 15, "prot": 1.2, "gluc": 2.4, "sucres": 1.3, "lip": 0.2, "sat": 0, "fibres": 1.7, "vitc": 18, "vitd": 0, "vita": 290, "vite": 0.2, "vitb12": 0, "ca": 33, "fe": 1, "mg": 14, "zn": 0.2, "k": 238, "na": 8}, {"nom": "Thon entier à l'huile de tournesol (Petit Navire)", "cat": "Poisson", "kcal": 217, "prot": 25, "gluc": 0, "sucres": 0, "lip": 13, "sat": 1.4, "fibres": 0, "vitc": 0, "vitd": 3, "vita": 20, "vite": 2, "vitb12": 2.5, "ca": 10, "fe": 1, "mg": 30, "zn": 0.5, "k": 250, "na": 400}, {"nom": "Maïs doux en grains (Simpl)", "cat": "Légume", "kcal": 86, "prot": 3.2, "gluc": 17, "sucres": 3.2, "lip": 1.3, "sat": 0.2, "fibres": 2.4, "vitc": 5, "vitd": 0, "vita": 10, "vite": 0.1, "vitb12": 0, "ca": 3, "fe": 0.5, "mg": 22, "zn": 0.5, "k": 187, "na": 220}, {"nom": "Carottes vrac (Carrefour)", "cat": "Légume", "kcal": 41, "prot": 0.9, "gluc": 10, "sucres": 4.7, "lip": 0.2, "sat": 0, "fibres": 2.8, "vitc": 5.9, "vitd": 0, "vita": 835, "vite": 0.7, "vitb12": 0, "ca": 33, "fe": 0.3, "mg": 12, "zn": 0.2, "k": 320, "na": 69}, {"nom": "Tomates cerises", "cat": "Légume", "kcal": 18, "prot": 0.9, "gluc": 3.9, "sucres": 2.6, "lip": 0.2, "sat": 0, "fibres": 1.2, "vitc": 14, "vitd": 0, "vita": 42, "vite": 0.5, "vitb12": 0, "ca": 10, "fe": 0.3, "mg": 11, "zn": 0.2, "k": 237, "na": 5}, {"nom": "Concombre", "cat": "Légume", "kcal": 15, "prot": 0.7, "gluc": 3.6, "sucres": 1.7, "lip": 0.1, "sat": 0, "fibres": 0.5, "vitc": 2.8, "vitd": 0, "vita": 5, "vite": 0.03, "vitb12": 0, "ca": 16, "fe": 0.3, "mg": 13, "zn": 0.2, "k": 147, "na": 2}, {"nom": "Saumon fumé (Simpl)", "cat": "Poisson", "kcal": 172, "prot": 22, "gluc": 0, "sucres": 0, "lip": 10, "sat": 1.6, "fibres": 0, "vitc": 0, "vitd": 8, "vita": 20, "vite": 1, "vitb12": 3, "ca": 12, "fe": 0.6, "mg": 30, "zn": 0.5, "k": 380, "na": 2000}, {"nom": "Pavés de saumon ASC (Carrefour Le Marché)", "cat": "Poisson", "kcal": 208, "prot": 20, "gluc": 0, "sucres": 0, "lip": 13, "sat": 2.7, "fibres": 0, "vitc": 0, "vitd": 11, "vita": 30, "vite": 3.6, "vitb12": 3.2, "ca": 9, "fe": 0.3, "mg": 27, "zn": 0.4, "k": 363, "na": 59}, {"nom": "Filets de poulet (Carrefour)", "cat": "Viande/Volaille", "kcal": 165, "prot": 31, "gluc": 0, "sucres": 0, "lip": 3.6, "sat": 1, "fibres": 0, "vitc": 0, "vitd": 0.1, "vita": 6, "vite": 0.3, "vitb12": 0.3, "ca": 15, "fe": 0.7, "mg": 29, "zn": 1, "k": 256, "na": 74}, {"nom": "Viande hachée pur bœuf 5%MG (Carrefour Le Marché)", "cat": "Viande", "kcal": 137, "prot": 21, "gluc": 0, "sucres": 0, "lip": 5, "sat": 2.2, "fibres": 0, "vitc": 0, "vitd": 0, "vita": 0, "vite": 0.3, "vitb12": 2.5, "ca": 12, "fe": 2.1, "mg": 21, "zn": 4.3, "k": 330, "na": 70}, {"nom": "Crevettes décortiquées nature (Carrefour Le Marché)", "cat": "Poisson/Fruits de mer", "kcal": 99, "prot": 21, "gluc": 0.3, "sucres": 0, "lip": 1.2, "sat": 0.3, "fibres": 0, "vitc": 0, "vitd": 0, "vita": 0, "vite": 1.4, "vitb12": 1.1, "ca": 70, "fe": 0.5, "mg": 39, "zn": 1.3, "k": 220, "na": 180}, {"nom": "Sauce tomate cuisinée ail et oignon (Heinz)", "cat": "Épicerie salée", "kcal": 73, "prot": 1.1, "gluc": 9.3, "sucres": 6, "lip": 3.5, "sat": 0.4, "fibres": 0, "vitc": 5, "vitd": 0, "vita": 30, "vite": 1, "vitb12": 0, "ca": 10, "fe": 0.4, "mg": 10, "zn": 0.2, "k": 250, "na": 364}, {"nom": "Crème légère semi-épaisse 18%MG (Carrefour Classic')", "cat": "Laitier", "kcal": 195, "prot": 2.5, "gluc": 3.5, "sucres": 3.5, "lip": 18, "sat": 12, "fibres": 0, "vitc": 0.5, "vitd": 0, "vita": 150, "vite": 0.5, "vitb12": 0.3, "ca": 90, "fe": 0, "mg": 8, "zn": 0.3, "k": 110, "na": 40}, {"nom": "Boisson concentrée au citron (Pulco)", "cat": "Boisson", "kcal": 30, "prot": 0.3, "gluc": 7, "sucres": 6.5, "lip": 0, "sat": 0, "fibres": 0.1, "vitc": 15, "vitd": 0, "vita": 0, "vite": 0, "vitb12": 0, "ca": 5, "fe": 0.1, "mg": 3, "zn": 0, "k": 30, "na": 5}, {"nom": "Boisson concentrée aux agrumes (Pulco)", "cat": "Boisson", "kcal": 32, "prot": 0.3, "gluc": 7.5, "sucres": 7, "lip": 0, "sat": 0, "fibres": 0.1, "vitc": 20, "vitd": 0, "vita": 2, "vite": 0, "vitb12": 0, "ca": 5, "fe": 0.1, "mg": 3, "zn": 0, "k": 35, "na": 5}, {"nom": "Eau minérale gazeuse (Perrier)", "cat": "Boisson", "kcal": 0, "prot": 0, "gluc": 0, "sucres": 0, "lip": 0, "sat": 0, "fibres": 0, "vitc": 0, "vitd": 0, "vita": 0, "vite": 0, "vitb12": 0, "ca": 15, "fe": 0, "mg": 0.4, "zn": 0, "k": 6, "na": 0.9}, {"nom": "Soda cola zéro sucres (Coca-Cola)", "cat": "Boisson", "kcal": 0.3, "prot": 0, "gluc": 0, "sucres": 0, "lip": 0, "sat": 0, "fibres": 0, "vitc": 0, "vitd": 0, "vita": 0, "vite": 0, "vitb12": 0, "ca": 0, "fe": 0, "mg": 0, "zn": 0, "k": 1, "na": 2}, {"nom": "Boisson énergisante zéro sucres (Monster)", "cat": "Boisson", "kcal": 3, "prot": 0.5, "gluc": 0, "sucres": 0, "lip": 0, "sat": 0, "fibres": 0, "vitc": 0, "vitd": 0, "vita": 0, "vite": 0, "vitb12": 0.3, "ca": 0, "fe": 0, "mg": 0, "zn": 0, "k": 10, "na": 70}, {"nom": "Pâtes Pipe Rigate (Barilla, crues)", "cat": "Féculent", "kcal": 353, "prot": 12, "gluc": 71, "sucres": 3.5, "lip": 1.5, "sat": 0.3, "fibres": 3, "vitc": 0, "vitd": 0, "vita": 0, "vite": 0.3, "vitb12": 0, "ca": 20, "fe": 1.6, "mg": 60, "zn": 1.2, "k": 220, "na": 5}, {"nom": "Riz basmati Extra (Carrefour, cru)", "cat": "Féculent", "kcal": 350, "prot": 7.5, "gluc": 78, "sucres": 0.1, "lip": 0.6, "sat": 0.1, "fibres": 1.3, "vitc": 0, "vitd": 0, "vita": 0, "vite": 0.1, "vitb12": 0, "ca": 10, "fe": 0.4, "mg": 35, "zn": 1.2, "k": 115, "na": 1}, {"nom": "Blé précuit 10min (Ebly, cuit)", "cat": "Féculent", "kcal": 110, "prot": 4, "gluc": 23, "sucres": 0.5, "lip": 0.8, "sat": 0.1, "fibres": 3.5, "vitc": 0, "vitd": 0, "vita": 0, "vite": 0.2, "vitb12": 0, "ca": 10, "fe": 1, "mg": 30, "zn": 0.8, "k": 120, "na": 5}, {"nom": "Riz long incollable 10min (Carrefour Classic', cru)", "cat": "Féculent", "kcal": 350, "prot": 7, "gluc": 79, "sucres": 0.1, "lip": 0.6, "sat": 0.1, "fibres": 1.3, "vitc": 0, "vitd": 0, "vita": 0, "vite": 0.1, "vitb12": 0, "ca": 10, "fe": 0.4, "mg": 30, "zn": 1.1, "k": 115, "na": 1}, {"nom": "Brocolis en fleurettes surgelés (Carrefour Classic')", "cat": "Légume", "kcal": 28, "prot": 2.5, "gluc": 4, "sucres": 1.5, "lip": 0.3, "sat": 0.1, "fibres": 2.6, "vitc": 65, "vitd": 0, "vita": 25, "vite": 0.6, "vitb12": 0, "ca": 40, "fe": 0.6, "mg": 18, "zn": 0.3, "k": 280, "na": 20}, {"nom": "Carottes surgelées (Picard)", "cat": "Légume", "kcal": 35, "prot": 0.8, "gluc": 7.5, "sucres": 4, "lip": 0.2, "sat": 0, "fibres": 2.8, "vitc": 4, "vitd": 0, "vita": 700, "vite": 0.5, "vitb12": 0, "ca": 30, "fe": 0.3, "mg": 10, "zn": 0.2, "k": 280, "na": 60}, {"nom": "Petits pois Garden Peas surgelés (Picard)", "cat": "Légume", "kcal": 70, "prot": 5.4, "gluc": 11, "sucres": 4, "lip": 0.5, "sat": 0.1, "fibres": 5, "vitc": 15, "vitd": 0, "vita": 45, "vite": 0.15, "vitb12": 0, "ca": 25, "fe": 1.5, "mg": 30, "zn": 1, "k": 220, "na": 3}, {"nom": "Thé vert infusé (El Taj, pour 100ml)", "cat": "Boisson", "kcal": 1, "prot": 0.2, "gluc": 0, "sucres": 0, "lip": 0, "sat": 0, "fibres": 0, "vitc": 0, "vitd": 0, "vita": 0, "vite": 0, "vitb12": 0, "ca": 2, "fe": 0, "mg": 2, "zn": 0, "k": 8, "na": 1}, {"nom": "Lait demi-écrémé UHT vitaminé D (Lactel)", "cat": "Laitier", "kcal": 46, "prot": 3.3, "gluc": 4.8, "sucres": 4.8, "lip": 1.5, "sat": 1, "fibres": 0, "vitc": 1, "vitd": 1.5, "vita": 28, "vite": 0.05, "vitb12": 0.4, "ca": 120, "fe": 0, "mg": 11, "zn": 0.4, "k": 150, "na": 42}, {"nom": "Flocons d'avoine", "cat": "Féculent", "kcal": 379, "prot": 13.5, "gluc": 62, "sucres": 1, "lip": 7, "sat": 1.2, "fibres": 10, "vitc": 0, "vitd": 0, "vita": 0, "vite": 0.4, "vitb12": 0, "ca": 54, "fe": 4.3, "mg": 177, "zn": 4, "k": 429, "na": 6}, {"nom": "Yaourt grec nature (0%)", "cat": "Laitier", "kcal": 59, "prot": 10, "gluc": 3.6, "sucres": 3.6, "lip": 0.4, "sat": 0.1, "fibres": 0, "vitc": 0, "vitd": 0, "vita": 2, "vite": 0, "vitb12": 0.5, "ca": 110, "fe": 0.1, "mg": 11, "zn": 0.5, "k": 141, "na": 36}];
-const SEED_MODELES = [{"nom": "Bowl Poulet-Riz-Brocoli", "ingredients": [{"ingredient": "Filets de poulet (Carrefour)", "qte": 150}, {"ingredient": "Riz basmati Extra (Carrefour, cru)", "qte": 80}, {"ingredient": "Brocolis en fleurettes surgelés (Carrefour Classic')", "qte": 150}]}, {"nom": "Avoine-Yaourt-Banane", "ingredients": [{"ingredient": "Flocons d'avoine", "qte": 60}, {"ingredient": "Yaourt grec nature (0%)", "qte": 150}, {"ingredient": "Bananes (Carrefour Simpl)", "qte": 120}]}, {"nom": "Modèle 3 (à renommer)", "ingredients": []}, {"nom": "Modèle 4 (à renommer)", "ingredients": []}, {"nom": "Modèle 5 (à renommer)", "ingredients": []}, {"nom": "Modèle 6 (à renommer)", "ingredients": []}, {"nom": "Modèle 7 (à renommer)", "ingredients": []}, {"nom": "Modèle 8 (à renommer)", "ingredients": []}, {"nom": "Modèle 9 (à renommer)", "ingredients": []}, {"nom": "Modèle 10 (à renommer)", "ingredients": []}];
+const SEED_ALIMENTS = __ALIMENTS_JSON__;
+const SEED_MODELES = __MODELES_JSON__;
 
 const SEED_OBJECTIFS = {
   Omar:   {sexe:'H', age:34, poids:90, taille:186, poidsObjectif:82, activite:1.375, deficit:500, protRatio:2, lipRatio:0.28, dateDebut:'2026-08-08'},
@@ -204,6 +240,41 @@ const MUSCU_MOUVEMENTS = [
   'Rowing barre','Presse à cuisses','Curl biceps','Extension triceps','Fentes',
   'Développé incliné','Hip thrust','Gainage / abdos','Autre'
 ];
+// Correspondance mouvement -> id d'exercice sur la base ouverte wger.de (photos réelles,
+// vérifiées manuellement pour chaque mouvement). L'image elle-même est récupérée en direct
+// via leur API publique (pas de clé requise) pour rester à jour ; "Autre" n'a pas de photo.
+const MOUVEMENT_WGER_ID = {
+  'Développé couché': 73,
+  'Développé militaire': 418,
+  'Squat': 1801,
+  'Soulevé de terre': 184,
+  'Tractions': 475,
+  'Rowing barre': 83,
+  'Presse à cuisses': 371,
+  'Curl biceps': 91,
+  'Extension triceps': 50,
+  'Fentes': 984,
+  'Développé incliné': 538,
+  'Hip thrust': 1642,
+  'Gainage / abdos': 458
+};
+const __mouvementImgCache = {};
+async function fetchMouvementImage(mouvement){
+  if(__mouvementImgCache[mouvement] !== undefined) return __mouvementImgCache[mouvement];
+  const id = MOUVEMENT_WGER_ID[mouvement];
+  if(!id){ __mouvementImgCache[mouvement] = null; return null; }
+  try{
+    const res = await fetch(`https://wger.de/api/v2/exerciseimage/?exercise=${id}&format=json`);
+    const data = await res.json();
+    const url = (data.results && data.results[0]) ? data.results[0].image : null;
+    __mouvementImgCache[mouvement] = url;
+    return url;
+  }catch(err){
+    console.warn('wger image fetch failed', err);
+    __mouvementImgCache[mouvement] = null;
+    return null;
+  }
+}
 // MET de base pour la musculation (résistance modérée), ajusté ensuite selon l'intensité
 // perçue (poids soulevé rapporté au poids de corps) — c'est une estimation, pas une mesure exacte.
 function musculationMET(poidsUtilise, poidsCorps){
@@ -405,6 +476,7 @@ function offProductToAliment(p){
   const kcal = n['energy-kcal_100g'] ?? n['energy-kcal'] ?? null;
   if(!p.product_name && kcal===null) return null;
   const catTag = (p.categories_tags && p.categories_tags.length) ? p.categories_tags[p.categories_tags.length-1] : null;
+  const image = p.image_front_small_url || p.image_small_url || p.image_url || p.image_thumb_url || null;
   return {
     nom: (p.product_name || p.generic_name || 'Produit sans nom').trim(),
     cat: catTag ? catTag.replace(/^\w\w:/,'').replace(/-/g,' ') : 'Autre',
@@ -413,7 +485,8 @@ function offProductToAliment(p){
     gluc: n['carbohydrates_100g'] ?? 0,
     lip: n['fat_100g'] ?? 0,
     fibres: n['fiber_100g'] ?? 0,
-    na: n['sodium_100g'] ? Math.round(n['sodium_100g']*1000) : 0
+    na: n['sodium_100g'] ? Math.round(n['sodium_100g']*1000) : 0,
+    image
   };
 }
 async function offSearch(query){
@@ -433,6 +506,82 @@ async function offSearch(query){
   const res = await fetch(url);
   const data = await res.json();
   return (data.products||[]).map(offProductToAliment).filter(Boolean);
+}
+
+/* ---- Lightbox image produit (réutilisable) ---- */
+function showImgLightbox(url, caption){
+  if(!url) return;
+  const overlay = document.getElementById('imgLightbox');
+  document.getElementById('imgLightboxImg').src = url;
+  document.getElementById('imgLightboxCaption').textContent = caption || '';
+  overlay.style.display = 'flex';
+}
+function hideImgLightbox(){
+  document.getElementById('imgLightbox').style.display = 'none';
+  document.getElementById('imgLightboxImg').src = '';
+}
+
+/* ---- Scanner code-barres / QR (caméra + BarcodeDetector natif) ---- */
+let __scannerStream = null;
+let __scannerRAF = null;
+async function openBarcodeScanner(onDetected){
+  const overlay = document.getElementById('scannerModal');
+  const video = document.getElementById('scannerVideo');
+  const msg = document.getElementById('scannerMsg');
+  overlay.style.display = 'flex';
+  msg.textContent = 'Ouverture de la caméra…';
+
+  if(!('BarcodeDetector' in window)){
+    msg.textContent = "Le scan n'est pas supporté par ce navigateur (essaie avec Chrome sur Android). Tu peux taper le code-barres à la main dans le champ de recherche.";
+    return;
+  }
+  try{
+    __scannerStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+  }catch(err){
+    console.warn('Camera error', err);
+    msg.textContent = "Impossible d'accéder à la caméra (permission refusée ou indisponible). Tu peux taper le code-barres à la main.";
+    return;
+  }
+  video.srcObject = __scannerStream;
+  await video.play().catch(()=>{});
+  msg.textContent = 'Vise le code-barres du produit…';
+
+  let detector;
+  try{
+    detector = new BarcodeDetector({ formats: ['ean_13','ean_8','upc_a','upc_e','qr_code','code_128'] });
+  }catch(err){
+    detector = new BarcodeDetector();
+  }
+
+  let stopped = false;
+  async function scanLoop(){
+    if(stopped) return;
+    try{
+      const codes = await detector.detect(video);
+      if(codes && codes.length){
+        const value = codes[0].rawValue;
+        msg.textContent = `Code détecté : ${value}`;
+        stopped = true;
+        closeBarcodeScanner();
+        onDetected(value);
+        return;
+      }
+    }catch(err){ /* frame non lisible, on continue */ }
+    __scannerRAF = requestAnimationFrame(scanLoop);
+  }
+  __scannerRAF = requestAnimationFrame(scanLoop);
+  overlay._stopScan = ()=>{ stopped = true; };
+}
+function closeBarcodeScanner(){
+  const overlay = document.getElementById('scannerModal');
+  if(overlay._stopScan) overlay._stopScan();
+  if(__scannerRAF) cancelAnimationFrame(__scannerRAF);
+  __scannerRAF = null;
+  if(__scannerStream){
+    __scannerStream.getTracks().forEach(t=>t.stop());
+    __scannerStream = null;
+  }
+  overlay.style.display = 'none';
 }
 
 function computeModeleTotals(modele){
@@ -651,6 +800,7 @@ function renderAliments(){
     <div class="row">
       <div class="field"><input type="text" id="off_query" placeholder="ex: yaourt grec nature, ou 3017620422003"></div>
       <button class="btn secondary" id="off_search" style="align-self:flex-end;">🔍 Chercher</button>
+      <button class="btn secondary" id="off_scan" style="align-self:flex-end;">📷 Scanner</button>
     </div>
     <div id="off_results"></div>
   </div>
@@ -713,7 +863,10 @@ function renderAliments(){
       offResults.innerHTML = found.map((p,idx)=>`
         <div class="out" style="align-items:center;">
           <span>${p.nom} <span class="tag">${p.cat}</span> — ${fmt(p.kcal,0)} kcal /100g</span>
-          <button class="btn small" data-useoff="${idx}">Utiliser</button>
+          <span class="off-result-actions">
+            ${p.image ? `<button class="btn small secondary" data-imgoff="${idx}" title="Voir la photo du produit">🖼️ Image</button>` : ''}
+            <button class="btn small" data-useoff="${idx}">Utiliser</button>
+          </span>
         </div>`).join('');
       offResults.querySelectorAll('[data-useoff]').forEach(b=>{
         b.addEventListener('click', ()=>{
@@ -726,6 +879,12 @@ function renderAliments(){
           });
         });
       });
+      offResults.querySelectorAll('[data-imgoff]').forEach(b=>{
+        b.addEventListener('click', ()=>{
+          const p = found[b.dataset.imgoff];
+          showImgLightbox(p.image, p.nom);
+        });
+      });
     }catch(err){
       console.warn('OFF search failed', err);
       offResults.innerHTML = `<p class="muted" style="font-size:.82rem;">Recherche indisponible (pas de connexion ou service momentanément hors service). Remplis le formulaire à la main.</p>`;
@@ -733,6 +892,12 @@ function renderAliments(){
   }
   wrap.querySelector('#off_search').addEventListener('click', runOffSearch);
   wrap.querySelector('#off_query').addEventListener('keydown', (e)=>{ if(e.key==='Enter'){ e.preventDefault(); runOffSearch(); } });
+  wrap.querySelector('#off_scan').addEventListener('click', ()=>{
+    openBarcodeScanner((code)=>{
+      wrap.querySelector('#off_query').value = code;
+      runOffSearch();
+    });
+  });
 
   function renderTable(filter){
     const table = wrap.querySelector('#alTable');
@@ -879,13 +1044,30 @@ function renderExercices(){
 
   function currentSport(){ return SPORTS.find(s=>s.id===sportSel.value); }
 
+  async function refreshMouvementImg(){
+    const sel = wrap.querySelector('#ex_mouvement');
+    const imgWrap = wrap.querySelector('#ex_mouvementImgWrap');
+    if(!sel || !imgWrap) return;
+    const mouvement = sel.value;
+    imgWrap.innerHTML = `<p class="muted">Chargement de la photo…</p>`;
+    const url = await fetchMouvementImage(mouvement);
+    if(url){
+      imgWrap.innerHTML = `<img src="${url}" alt="${mouvement}" loading="lazy"><p class="muted">Photo indicative (base wger.de) — vérifie que c'est bien le mouvement voulu.</p>`;
+    } else {
+      imgWrap.innerHTML = mouvement==='Autre' ? '' : `<p class="muted">Pas de photo disponible pour ce mouvement.</p>`;
+    }
+  }
+
   function refreshDynFields(){
     const sport = currentSport();
     if(sport.muscu){
       dynFields.innerHTML = `
         <div class="field"><label>Mouvement</label><select id="ex_mouvement">${MUSCU_MOUVEMENTS.map(m=>`<option>${m}</option>`).join('')}</select></div>
         <div class="field"><label>Nombre de séries</label><input type="number" id="ex_series" value="4" min="1"></div>
-        <div class="field"><label>Poids utilisé (kg)</label><input type="number" step="0.5" id="ex_poidsUtilise" value="20" min="0"></div>`;
+        <div class="field"><label>Poids utilisé (kg)</label><input type="number" step="0.5" id="ex_poidsUtilise" value="20" min="0"></div>
+        <div class="mouvement-img-wrap" id="ex_mouvementImgWrap" style="width:100%;"></div>`;
+      wrap.querySelector('#ex_mouvement').addEventListener('change', refreshMouvementImg);
+      refreshMouvementImg();
     } else {
       dynFields.innerHTML = `<div class="field"><label>Intensité</label><select id="ex_intensite">${sport.intensites.map((it,idx)=>`<option value="${idx}">${it.label}</option>`).join('')}</select></div>`;
     }
@@ -1673,6 +1855,12 @@ document.getElementById('globalProfil').addEventListener('change', (e)=>{
   save(); renderAll();
 });
 document.getElementById('btnRefresh').addEventListener('click', manualRefresh);
+
+/* ---- Wiring lightbox image & scanner (fermeture) ---- */
+document.getElementById('imgLightboxClose').addEventListener('click', hideImgLightbox);
+document.getElementById('imgLightbox').addEventListener('click', (e)=>{ if(e.target.id==='imgLightbox') hideImgLightbox(); });
+document.getElementById('scannerCloseBtn').addEventListener('click', closeBarcodeScanner);
+document.getElementById('scannerModal').addEventListener('click', (e)=>{ if(e.target.id==='scannerModal') closeBarcodeScanner(); });
 
 /* ============================= PWA (service worker) ============================= */
 if('serviceWorker' in navigator && (location.protocol==='https:' || location.hostname==='localhost')){
