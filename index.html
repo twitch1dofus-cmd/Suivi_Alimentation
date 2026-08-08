@@ -84,7 +84,11 @@
   .voice-fab:hover{background:var(--accent-dark);}
   .voice-fab.listening{background:#dc2626;animation:voicePulse 1.2s infinite;}
   @keyframes voicePulse{0%{box-shadow:0 0 0 0 rgba(220,38,38,.6);}70%{box-shadow:0 0 0 18px rgba(220,38,38,0);}100%{box-shadow:0 0 0 0 rgba(220,38,38,0);}}
-  .voice-listening{position:fixed;bottom:calc(90px + env(safe-area-inset-bottom));right:20px;background:#111827;color:#fff;padding:8px 14px;border-radius:8px;font-size:.82rem;z-index:1000;}
+  .voice-syntax-panel{position:fixed;bottom:calc(90px + env(safe-area-inset-bottom));right:16px;left:16px;max-width:420px;margin-left:auto;background:#111827;color:#e5e7eb;padding:12px 14px;border-radius:10px;font-size:.78rem;line-height:1.5;z-index:1000;box-shadow:0 4px 14px rgba(0,0,0,.35);max-height:55vh;overflow-y:auto;}
+  .voice-syntax-panel .voice-syntax-title{font-weight:600;margin-bottom:8px;color:#93c5fd;font-size:.8rem;}
+  .voice-syntax-panel code{background:rgba(255,255,255,.14);padding:1px 5px;border-radius:4px;color:#fef3c7;font-family:inherit;}
+  .voice-syntax-panel .voice-syntax-ex{display:block;color:#9ca3af;margin:4px 0 10px;font-style:italic;}
+  .voice-syntax-panel b{color:#fff;}
   .voice-modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;z-index:1100;padding:16px;}
   .voice-modal-box{background:#fff;border-radius:10px;padding:20px;max-width:420px;width:100%;max-height:80vh;overflow-y:auto;}
   .voice-modal-box h3{margin:0 0 10px;font-size:1.05rem;}
@@ -114,7 +118,10 @@
 <footer>Fichier local — aucune donnée envoyée sur internet. Fais une copie de sauvegarde du fichier de temps en temps.</footer>
 
 <button id="voiceFab" class="voice-fab" title="Commande vocale" aria-label="Commande vocale">🎤</button>
-<div id="voiceListening" class="voice-listening" style="display:none;">🎙️ Je t'écoute…</div>
+<div id="voiceSyntaxPanel" class="voice-syntax-panel" style="display:none;">
+  <div class="voice-syntax-title">🎙️ Je t'écoute… — syntaxe pour cet onglet :</div>
+  <div id="voiceSyntaxBody"></div>
+</div>
 <div id="voiceModal" class="voice-modal-overlay" style="display:none;">
   <div class="voice-modal-box">
     <h3 id="voiceModalTitle">Confirmer</h3>
@@ -932,6 +939,44 @@ function voiceFindCreneau(text){
   return null;
 }
 
+// Extrait les infos de profil dictées à la voix (sexe, âge, poids, taille, objectif, activité, déficit, ratios).
+// Ne renvoie que les champs effectivement reconnus ; les autres gardent leur valeur par défaut.
+function voiceExtractObjectifDetails(text){
+  const details = {};
+  if(/\bhomme\b/.test(text)) details.sexe = 'H';
+  else if(/\bfemme\b/.test(text)) details.sexe = 'F';
+
+  const mAge = text.match(/(\d+)\s*ans\b/);
+  if(mAge) details.age = parseInt(mAge[1], 10);
+
+  const mTaille = text.match(/(\d+)\s*(?:cm|centimetres?)\b/);
+  if(mTaille) details.taille = parseInt(mTaille[1], 10);
+
+  const mObjPoids = text.match(/objectif\s*(?:de\s*)?(\d+(?:[.,]\d+)?)\s*(?:kg|kilos?)?/);
+  if(mObjPoids) details.poidsObjectif = parseFloat(mObjPoids[1].replace(',', '.'));
+
+  const textForPoids = mObjPoids ? text.replace(mObjPoids[0], '') : text;
+  const mPoids = textForPoids.match(/(\d+(?:[.,]\d+)?)\s*(?:kg|kilos?)\b/);
+  if(mPoids) details.poids = parseFloat(mPoids[1].replace(',', '.'));
+
+  if(/tres actif/.test(text)) details.activite = 1.9;
+  else if(/actif/.test(text)) details.activite = 1.725;
+  else if(/modere/.test(text)) details.activite = 1.55;
+  else if(/leger/.test(text)) details.activite = 1.375;
+  else if(/sedentaire/.test(text)) details.activite = 1.2;
+
+  const mDef = text.match(/deficit\s*(?:de\s*)?(\d+)/) || text.match(/(\d+)\s*(?:kcal)?\s*de\s*deficit/);
+  if(mDef) details.deficit = parseInt(mDef[1], 10);
+
+  const mProt = text.match(/(\d+(?:[.,]\d+)?)\s*grammes?\s*(?:de\s*)?proteines?\s*par\s*kilo/);
+  if(mProt) details.protRatio = parseFloat(mProt[1].replace(',', '.'));
+
+  const mLip = text.match(/(\d+(?:[.,]\d+)?)\s*(?:%|pourcent)\s*(?:de\s*)?lipides?/);
+  if(mLip) details.lipRatio = parseFloat(mLip[1].replace(',', '.'))/100;
+
+  return details;
+}
+
 // Analyse la phrase selon l'onglet actif et renvoie {ok, resume, appliquer()} (ok:true)
 // ou {ok:false, resume:"message"} si la commande n'a pas été comprise.
 function parseVoiceCommand(tab, rawText){
@@ -939,19 +984,35 @@ function parseVoiceCommand(tab, rawText){
 
   if(tab==='objectifs'){
     const m = text.match(/(?:nouveau|ajoute(?:r)?|cree(?:r)?)\s+(?:un\s+|le\s+)?profil\s+(.+)/) || text.match(/profil\s+(.+)/);
-    let nom = m ? m[1].trim() : '';
+    let remainder = m ? m[1].trim() : '';
+    if(!remainder) return {ok:false, resume:"Je n'ai pas compris le nom du profil. Dis par exemple : « nouveau profil Sami »."};
+    remainder = remainder.replace(/\s+/g,' ').trim();
+    // le nom du profil = tout ce qui précède le premier détail reconnu (âge, poids, sexe, etc.)
+    const cutRe = /\b(homme|femme|\d+|tres|sedentaire|leger|modere|actif|objectif|deficit|grammes?|pourcent|%|cm|centimetres?|kg|kilos?|ans)\b/;
+    const cutM = remainder.match(cutRe);
+    let nom = (cutM ? remainder.slice(0, cutM.index) : remainder).trim();
     if(!nom) return {ok:false, resume:"Je n'ai pas compris le nom du profil. Dis par exemple : « nouveau profil Sami »."};
-    nom = nom.replace(/\s+/g,' ').trim();
     nom = nom.charAt(0).toUpperCase()+nom.slice(1);
     if(state.profils.map(p=>p.toLowerCase()).includes(nom.toLowerCase())){
       return {ok:false, resume:`Un profil « ${nom} » existe déjà.`};
     }
+    const details = voiceExtractObjectifDetails(remainder);
+    const activiteLabels = {1.2:'Sédentaire',1.375:'Léger',1.55:'Modéré',1.725:'Actif',1.9:'Très actif'};
+    const OBJ_FIELD_LABELS = {age:'Âge (ans)', poids:'Poids actuel (kg)', taille:'Taille (cm)', poidsObjectif:'Poids objectif (kg)', deficit:'Déficit (kcal/j)', protRatio:'Protéines cible (g/kg)'};
+    const detailLines = Object.keys(details).map(k=>{
+      if(k==='sexe') return `Sexe : <b>${details.sexe==='H'?'Homme':'Femme'}</b>`;
+      if(k==='activite') return `Niveau d'activité : <b>${activiteLabels[details.activite]||details.activite}</b>`;
+      if(k==='lipRatio') return `Lipides cible : <b>${Math.round(details.lipRatio*100)}%</b> des kcal`;
+      return `${OBJ_FIELD_LABELS[k]||k} : <b>${details[k]}</b>`;
+    }).join('<br>');
     return {
       ok:true,
-      resume:`Créer un nouveau profil : <b>${nom}</b> (objectifs par défaut, à ajuster ensuite dans l'onglet Objectifs).`,
+      resume:`Créer un nouveau profil : <b>${nom}</b>`+(detailLines?`<br>${detailLines}`:'')+`<br><span class="muted" style="font-size:.78rem;">Champs non précisés = valeurs par défaut, modifiables ensuite dans l'onglet Objectifs.</span>`,
       appliquer(){
         state.profils.push(nom);
-        state.objectifs[nom] = defaultObjectifsFor();
+        const base = defaultObjectifsFor();
+        Object.assign(base, details);
+        state.objectifs[nom] = base;
         state.micros[nom] = defaultMicrosFor();
         state.profilActif = nom;
         save(); renderAll();
@@ -1079,6 +1140,46 @@ function parseVoiceCommand(tab, rawText){
   return {ok:false, resume:"Commande vocale non disponible sur cet onglet."};
 }
 
+// Mémo de syntaxe affiché à l'écran pendant l'écoute, pour aider à formuler la phrase.
+function voiceSyntaxHelp(tab){
+  const help = {
+    objectifs: `<b>Créer un profil</b> — dis : <code>nouveau profil [nom]</code>, puis dans n'importe quel ordre :<br>
+      • <code>homme</code> ou <code>femme</code><br>
+      • <code>[X] ans</code> (âge)<br>
+      • <code>[X] kilos</code> (poids actuel)<br>
+      • <code>[X] centimètres</code> (taille)<br>
+      • <code>objectif [X] kilos</code> (poids cible)<br>
+      • <code>sédentaire</code> / <code>léger</code> / <code>modéré</code> / <code>actif</code> / <code>très actif</code> (niveau d'activité)<br>
+      • <code>déficit [X]</code> (kcal/jour)<br>
+      • <code>[X] grammes de protéines par kilo</code><br>
+      • <code>[X] pourcent de lipides</code><br>
+      <span class="voice-syntax-ex">Ex : "nouveau profil Karim homme 28 ans 85 kilos 182 centimètres objectif 78 kilos actif déficit 400"</span>`,
+    aliments: `<b>Ajouter un aliment</b> — dis : <code>ajoute un aliment [nom]</code>, puis :<br>
+      • <code>[X] calories</code><br>
+      • <code>[X] grammes de protéines</code><br>
+      • <code>[X] grammes de glucides</code><br>
+      • <code>[X] grammes de lipides</code><br>
+      • <code>[X] grammes de fibres</code><br>
+      • <code>[X] sodium</code>, <code>calcium</code>, <code>fer</code>, <code>magnésium</code>, <code>zinc</code>, <code>potassium</code><br>
+      • <code>vitamine c/d/a/e/b12 [X]</code><br>
+      • <code>catégorie [mot]</code><br>
+      <span class="voice-syntax-ex">Ex : "ajoute un aliment Poulet grillé 165 calories 31 grammes de protéines catégorie viande"</span><br>
+      <b>Modifier un aliment</b> — dis : <code>modifie [nom] [X] [métrique]…</code> (mêmes mots-clés)<br>
+      <span class="voice-syntax-ex">Ex : "modifie Poulet grillé 200 calories"</span>`,
+    modeles: `<b>Créer un modèle de repas</b> — dis :<br>
+      <code>crée un modèle [nom] avec [X] grammes de [ingrédient] et [X] grammes de [ingrédient]…</code><br>
+      Le mot <code>avec</code> est obligatoire avant la liste ; sépare les ingrédients par "et" ou une virgule.<br>
+      <span class="voice-syntax-ex">Ex : "crée un modèle Bowl poulet riz avec 150 grammes de poulet et 100 grammes de riz"</span>`,
+    repas: `<b>Ajouter un repas au journal</b> — dis :<br>
+      <code>ajoute [X] grammes de [aliment] au [créneau]</code><br>
+      Créneaux reconnus : <code>petit-déjeuner</code>, <code>déjeuner</code>, <code>dîner</code>, <code>collation 1</code>, <code>collation 2</code><br>
+      <span class="voice-syntax-ex">Ex : "ajoute 150 grammes de poulet grillé au déjeuner"</span>`,
+    suivi: `<b>Enregistrer le poids réel</b> — dis juste le nombre, avec "virgule" pour la décimale :<br>
+      <span class="voice-syntax-ex">Ex : "75 virgule 2 kilos"</span>`
+  };
+  return help[tab] || "Commande vocale non disponible sur cet onglet.";
+}
+
 let voiceRecognition = null;
 function showVoiceModal(transcript, result){
   const overlay = document.getElementById('voiceModal');
@@ -1097,7 +1198,8 @@ function showVoiceModal(transcript, result){
 function initVoice(){
   const Rec = window.SpeechRecognition || window.webkitSpeechRecognition;
   const fab = document.getElementById('voiceFab');
-  const listeningEl = document.getElementById('voiceListening');
+  const syntaxPanel = document.getElementById('voiceSyntaxPanel');
+  const syntaxBody = document.getElementById('voiceSyntaxBody');
   if(!Rec){
     fab.title = "Reconnaissance vocale non supportée par ce navigateur";
     fab.addEventListener('click', ()=> alert("La reconnaissance vocale n'est pas supportée par ce navigateur. Essaie avec Chrome sur Android. Sur iPhone, le support de Safari est plus limité une fois l'appli installée sur l'écran d'accueil."));
@@ -1110,15 +1212,16 @@ function initVoice(){
 
   voiceRecognition.addEventListener('start', ()=>{
     fab.classList.add('listening');
-    listeningEl.style.display = 'block';
+    syntaxBody.innerHTML = voiceSyntaxHelp(currentTab);
+    syntaxPanel.style.display = 'block';
   });
   voiceRecognition.addEventListener('end', ()=>{
     fab.classList.remove('listening');
-    listeningEl.style.display = 'none';
+    syntaxPanel.style.display = 'none';
   });
   voiceRecognition.addEventListener('error', (e)=>{
     fab.classList.remove('listening');
-    listeningEl.style.display = 'none';
+    syntaxPanel.style.display = 'none';
     if(e.error!=='no-speech' && e.error!=='aborted'){
       alert("Erreur de reconnaissance vocale : "+e.error);
     }
