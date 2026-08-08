@@ -73,9 +73,13 @@
   .save-flash{position:fixed;bottom:16px;right:16px;background:#111827;color:#fff;padding:8px 14px;border-radius:8px;font-size:.8rem;opacity:0;transition:opacity .3s;pointer-events:none;}
   .save-flash.show{opacity:.92;}
   footer{text-align:center;color:var(--muted);font-size:.75rem;padding:20px;}
-  .header-actions{display:flex;gap:8px;margin-top:10px;}
+  .header-actions{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;}
   .header-actions .btn{background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.4);}
   .header-actions .btn:hover{background:rgba(255,255,255,.28);}
+  .profile-bar{display:flex;gap:8px;align-items:center;margin-top:12px;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.35);border-radius:8px;padding:8px 10px;}
+  .profile-bar label{color:#e0e7ff;font-size:.78rem;margin:0;white-space:nowrap;}
+  .profile-bar select{width:auto;min-width:140px;background:#fff;color:var(--ink);}
+  .profile-bar .btn{background:rgba(255,255,255,.2);border:1px solid rgba(255,255,255,.5);padding:6px 10px;font-size:.8rem;}
 </style>
 </head>
 <body>
@@ -88,6 +92,10 @@
     <button class="btn" id="btnImport">⬆️ Importer une sauvegarde</button>
     <input type="file" id="fileImport" accept="application/json" style="display:none;">
     <span id="cloudStatus" style="align-self:center;font-size:.78rem;margin-left:4px;"></span>
+  </div>
+  <div class="profile-bar">
+    <label for="globalProfil">👤 Profil actif :</label>
+    <select id="globalProfil"></select>
   </div>
 </header>
 <nav id="tabs"></nav>
@@ -141,11 +149,26 @@ function defaultState(){
     aliments: SEED_ALIMENTS.map((a,i)=>({id:'al'+i, ...a})),
     modeles: SEED_MODELES.map((m,i)=>({id:'mo'+i, nom:m.nom, ingredients:(m.ingredients||[]).map(ig=>({...ig}))})),
     journal: [],
-    poids: []
+    poids: [],
+    profils: Object.keys(SEED_OBJECTIFS),
+    profilActif: Object.keys(SEED_OBJECTIFS)[0]
   };
 }
 
-let state = load();
+// Comble les champs manquants (profils / profilActif) sur un état existant, pour rester
+// compatible avec les données déjà sauvegardées (local ou cloud) avant l'ajout multi-profils.
+function normalizeState(s){
+  if(!s.profils || !Array.isArray(s.profils) || !s.profils.length){
+    s.profils = Object.keys(s.objectifs||{});
+    if(!s.profils.length) s.profils = ['Omar','Meryem'];
+  }
+  if(!s.profilActif || !s.profils.includes(s.profilActif)){
+    s.profilActif = s.profils[0];
+  }
+  return s;
+}
+
+let state = normalizeState(load());
 
 function load(){
   try{
@@ -213,7 +236,7 @@ function initCloudSync(){
         if(remote && remote.payload){
           applyingRemoteUpdate = true;
           try{
-            state = JSON.parse(remote.payload);
+            state = normalizeState(JSON.parse(remote.payload));
             localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
             renderAll();
           } finally { applyingRemoteUpdate = false; }
@@ -342,25 +365,72 @@ function renderNav(){
   nav.innerHTML = TABS.map(t=>`<button data-tab="${t.id}" class="${t.id===currentTab?'active':''}">${t.label}</button>`).join('');
   nav.querySelectorAll('button').forEach(b=>b.addEventListener('click', ()=>{ currentTab=b.dataset.tab; renderAll(); }));
 }
-function renderAll(){ renderNav(); document.getElementById('app').innerHTML=''; ROUTES[currentTab](); }
+function renderProfileBar(){
+  const sel = document.getElementById('globalProfil');
+  if(!sel) return;
+  sel.innerHTML = state.profils.map(p=>`<option value="${p}" ${p===state.profilActif?'selected':''}>${p}</option>`).join('');
+}
+function renderAll(){ renderProfileBar(); renderNav(); document.getElementById('app').innerHTML=''; ROUTES[currentTab](); }
 const ROUTES = { objectifs:renderObjectifs, aliments:renderAliments, modeles:renderModeles, repas:renderRepas, suivi:renderSuivi };
 
 /* ============================= TAB: OBJECTIFS ============================= */
+function defaultObjectifsFor(){
+  return {sexe:'H', age:30, poids:70, taille:170, poidsObjectif:65, activite:1.375, deficit:500, protRatio:2, lipRatio:0.28, dateDebut: todayISO()};
+}
+function defaultMicrosFor(){
+  return {vitc:110, vitd:15, vita:700, vite:12, vitb12:4, ca:950, fe:12, mg:350, zn:10, k:3500, na:2300};
+}
 function renderObjectifs(){
   const app = document.getElementById('app');
+  const p = state.profilActif;
+  const o = state.objectifs[p];
+  const targets = computeTargets(p);
   const card = document.createElement('div');
   card.innerHTML = `<div class="card"><h2>Paramètres et objectifs quotidiens</h2>
     <p class="muted" style="font-size:.82rem;margin-top:-6px;">Modifie l'âge, le poids, la taille ou l'activité : les cibles se recalculent automatiquement (formule de Mifflin-St&nbsp;Jeor).</p>
-    <div class="grid2" id="objGrid"></div></div>
+    <div class="row" style="margin-bottom:14px;align-items:flex-end;">
+      <div class="field"><label>Profil à modifier</label>
+        <select id="obj_profilSel">${state.profils.map(x=>`<option value="${x}" ${x===p?'selected':''}>${x}</option>`).join('')}</select>
+      </div>
+      <button class="btn secondary" id="obj_addProfil">+ Nouveau profil</button>
+      <button class="btn danger" id="obj_delProfil" ${state.profils.length<=1?'disabled title="Impossible de supprimer le dernier profil"':''}>🗑 Supprimer ce profil</button>
+    </div>
+    <div id="objGrid"></div></div>
     <div class="card"><h2>Repères micronutriments (ANSES, indicatif)</h2>
     <div class="tablewrap"><table id="microTable"></table></div></div>`;
   app.appendChild(card);
+
+  card.querySelector('#obj_profilSel').addEventListener('change', (e)=>{
+    state.profilActif = e.target.value;
+    save(); renderAll();
+  });
+  card.querySelector('#obj_addProfil').addEventListener('click', ()=>{
+    const nom = prompt('Nom du nouveau profil :');
+    if(!nom) return;
+    const trimmed = nom.trim();
+    if(!trimmed) return;
+    if(state.profils.includes(trimmed)){ alert('Ce profil existe déjà.'); return; }
+    state.profils.push(trimmed);
+    state.objectifs[trimmed] = defaultObjectifsFor();
+    state.micros[trimmed] = defaultMicrosFor();
+    state.profilActif = trimmed;
+    save(); renderAll();
+  });
+  card.querySelector('#obj_delProfil').addEventListener('click', ()=>{
+    if(state.profils.length<=1) return;
+    if(!confirm(`Supprimer le profil "${p}" ? Son historique de repas et de poids sera aussi supprimé.`)) return;
+    state.profils = state.profils.filter(x=>x!==p);
+    delete state.objectifs[p];
+    delete state.micros[p];
+    state.journal = state.journal.filter(j=>j.personne!==p);
+    state.poids = state.poids.filter(w=>w.personne!==p);
+    state.profilActif = state.profils[0];
+    save(); renderAll();
+  });
+
   const grid = card.querySelector('#objGrid');
-  ['Omar','Meryem'].forEach(p=>{
-    const o = state.objectifs[p];
-    const targets = computeTargets(p);
-    const div = document.createElement('div');
-    div.innerHTML = `<h3>${p}</h3>
+  const div = document.createElement('div');
+  div.innerHTML = `<h3>${p}</h3>
       <div class="row">
         <div class="field"><label>Sexe</label><select data-p="${p}" data-f="sexe"><option value="H" ${o.sexe==='H'?'selected':''}>Homme</option><option value="F" ${o.sexe==='F'?'selected':''}>Femme</option></select></div>
         <div class="field"><label>Âge (ans)</label><input type="number" data-p="${p}" data-f="age" value="${o.age}"></div>
@@ -399,27 +469,26 @@ function renderObjectifs(){
       <div class="out"><span>Fibres</span><b>${fmt(targets.fibres,1)} g/j</b></div>
       <div class="out"><span>Eau</span><b>${fmt(targets.eau,2)} L/j</b></div>
       <div class="out"><span>Écart au poids objectif</span><b>${fmt(o.poids-o.poidsObjectif,1)} kg</b></div>`;
-    grid.appendChild(div);
-  });
+  grid.appendChild(div);
   grid.querySelectorAll('input,select').forEach(el=>{
     el.addEventListener('change', ()=>{
-      const p = el.dataset.p, f = el.dataset.f;
+      const pp = el.dataset.p, f = el.dataset.f;
       let v = el.value;
       if(f!=='sexe' && f!=='dateDebut') v = parseFloat(v);
-      state.objectifs[p][f] = v;
+      state.objectifs[pp][f] = v;
       save(); renderObjectifs();
     });
   });
 
-  // micronutrient reference table
+  // micronutrient reference table (une colonne par profil)
   const mt = card.querySelector('#microTable');
   const microKeys = ['vitc','vitd','vita','vite','vitb12','ca','fe','mg','zn','k','na'];
-  let rows = `<tr><th>Nutriment</th><th>Omar</th><th>Meryem</th></tr>`;
+  let rows = `<tr><th>Nutriment</th>` + state.profils.map(x=>`<th>${x}</th>`).join('') + `</tr>`;
   microKeys.forEach(k=>{
     const meta = METRICS.find(m=>m.key===k);
-    rows += `<tr><td>${meta.label} (${meta.unit||'-'})</td>
-      <td><input type="number" step="0.1" data-mp="Omar" data-mk="${k}" value="${state.micros.Omar[k]}"></td>
-      <td><input type="number" step="0.1" data-mp="Meryem" data-mk="${k}" value="${state.micros.Meryem[k]}"></td></tr>`;
+    rows += `<tr><td>${meta.label} (${meta.unit||'-'})</td>` +
+      state.profils.map(x=>`<td><input type="number" step="0.1" data-mp="${x}" data-mk="${k}" value="${state.micros[x][k]}"></td>`).join('') +
+      `</tr>`;
   });
   mt.innerHTML = rows;
   mt.querySelectorAll('input').forEach(el=>{
@@ -433,6 +502,8 @@ function renderObjectifs(){
 /* ============================= TAB: ALIMENTS ============================= */
 function renderAliments(){
   const app = document.getElementById('app');
+  const editingId = renderAliments._editingId || null;
+  const editing = editingId ? state.aliments.find(a=>a.id===editingId) : null;
   const wrap = document.createElement('div');
   wrap.innerHTML = `<div class="card">
     <h2>Base d'ingrédients (valeurs pour 100 g)</h2>
@@ -440,13 +511,14 @@ function renderAliments(){
     <div class="tablewrap"><table id="alTable"></table></div>
   </div>
   <div class="card">
-    <h2>Ajouter un aliment</h2>
+    <h2>${editing ? '✏️ Modifier l’aliment : ' + editing.nom : 'Ajouter un aliment'}</h2>
     <div class="row" id="alFormRow1">
-      <div class="field"><label>Nom</label><input id="af_nom" type="text" placeholder="Nom du produit"></div>
-      <div class="field"><label>Catégorie</label><input id="af_cat" type="text" placeholder="ex: Fruit, Légume, Poisson..."></div>
+      <div class="field"><label>Nom</label><input id="af_nom" type="text" placeholder="Nom du produit" value="${editing?editing.nom:''}"></div>
+      <div class="field"><label>Catégorie</label><input id="af_cat" type="text" placeholder="ex: Fruit, Légume, Poisson..." value="${editing?editing.cat:''}"></div>
     </div>
     <div class="row" id="alFormRow2"></div>
-    <button class="btn" id="af_add">+ Ajouter l'aliment</button>
+    <button class="btn" id="af_add">${editing ? '💾 Enregistrer les modifications' : "+ Ajouter l'aliment"}</button>
+    ${editing ? '<button class="btn secondary" id="af_cancel" style="margin-left:8px;">Annuler</button>' : ''}
   </div>`;
   app.appendChild(wrap);
 
@@ -455,19 +527,32 @@ function renderAliments(){
   METRICS.forEach(m=>{
     const div = document.createElement('div');
     div.className='field';
-    div.innerHTML = `<label>${m.label} ${m.unit?'('+m.unit+')':''}</label><input type="number" step="0.01" id="af_${m.key}" value="0">`;
+    const val = editing ? editing[m.key] : 0;
+    div.innerHTML = `<label>${m.label} ${m.unit?'('+m.unit+')':''}</label><input type="number" step="0.01" id="af_${m.key}" value="${val}">`;
     row2.appendChild(div);
   });
   wrap.querySelector('#af_add').addEventListener('click', ()=>{
     const nom = wrap.querySelector('#af_nom').value.trim();
     if(!nom){ alert("Merci de donner un nom à l'aliment."); return; }
     const cat = wrap.querySelector('#af_cat').value.trim() || 'Autre';
-    const obj = {id:uid('al'), nom, cat};
-    METRICS.forEach(m=> obj[m.key] = parseFloat(wrap.querySelector('#af_'+m.key).value)||0);
-    state.aliments.push(obj);
+    if(editing){
+      editing.nom = nom; editing.cat = cat;
+      METRICS.forEach(m=> editing[m.key] = parseFloat(wrap.querySelector('#af_'+m.key).value)||0);
+      renderAliments._editingId = null;
+    } else {
+      const obj = {id:uid('al'), nom, cat};
+      METRICS.forEach(m=> obj[m.key] = parseFloat(wrap.querySelector('#af_'+m.key).value)||0);
+      state.aliments.push(obj);
+    }
     save();
     renderAliments();
   });
+  if(editing){
+    wrap.querySelector('#af_cancel').addEventListener('click', ()=>{
+      renderAliments._editingId = null;
+      renderAliments();
+    });
+  }
 
   function renderTable(filter){
     const table = wrap.querySelector('#alTable');
@@ -476,15 +561,22 @@ function renderAliments(){
     let rows = list.map(a=>`<tr>
         <td>${a.nom}</td><td><span class="tag">${a.cat}</span></td>
         ${METRICS.map(m=>`<td>${fmt(a[m.key],m.dec)}</td>`).join('')}
-        <td><button class="btn danger small" data-del="${a.id}">Suppr.</button></td>
+        <td><button class="btn secondary small" data-edit="${a.id}">✏️ Modifier</button> <button class="btn danger small" data-del="${a.id}">Suppr.</button></td>
       </tr>`).join('');
     table.innerHTML = head + rows;
     table.querySelectorAll('[data-del]').forEach(b=>{
       b.addEventListener('click', ()=>{
         if(confirm('Supprimer cet aliment ? (les repas/modèles qui le référencent afficheront 0)')){
           state.aliments = state.aliments.filter(a=>a.id!==b.dataset.del);
+          if(renderAliments._editingId===b.dataset.del) renderAliments._editingId = null;
           save(); renderAliments();
         }
+      });
+    });
+    table.querySelectorAll('[data-edit]').forEach(b=>{
+      b.addEventListener('click', ()=>{
+        renderAliments._editingId = b.dataset.edit;
+        renderAliments();
       });
     });
   }
@@ -569,15 +661,14 @@ function renderModeles(){
 function renderRepas(){
   const app = document.getElementById('app');
   if(!renderRepas._date) renderRepas._date = todayISO();
-  if(!renderRepas._personne) renderRepas._personne = 'Omar';
-  const date = renderRepas._date, personne = renderRepas._personne;
+  const date = renderRepas._date, personne = state.profilActif;
 
   const wrap = document.createElement('div');
   wrap.innerHTML = `<div class="card">
     <h2>Journal des repas</h2>
     <div class="row">
       <div class="field"><label>Date</label><input type="date" id="rp_date" value="${date}"></div>
-      <div class="field"><label>Personne</label><select id="rp_personne"><option ${personne==='Omar'?'selected':''}>Omar</option><option ${personne==='Meryem'?'selected':''}>Meryem</option></select></div>
+      <div class="field"><label>Personne</label><div class="out" style="margin:0;"><span>Profil actif</span><b>${personne}</b></div></div>
     </div>
     <h3>Ajouter un aliment ou un repas prédéfini</h3>
     <div class="row">
@@ -609,7 +700,6 @@ function renderRepas(){
   typeSel.addEventListener('change', refreshRefOptions);
 
   wrap.querySelector('#rp_date').addEventListener('change', e=>{ renderRepas._date=e.target.value; renderRepas(); });
-  wrap.querySelector('#rp_personne').addEventListener('change', e=>{ renderRepas._personne=e.target.value; renderRepas(); });
 
   wrap.querySelector('#rp_add').addEventListener('click', ()=>{
     const entry = {
@@ -665,8 +755,7 @@ function renderRepas(){
 function renderSuivi(){
   const app = document.getElementById('app');
   if(!renderSuivi._date) renderSuivi._date = todayISO();
-  if(!renderSuivi._personne) renderSuivi._personne = 'Omar';
-  const date = renderSuivi._date, personne = renderSuivi._personne;
+  const date = renderSuivi._date, personne = state.profilActif;
 
   const wrap = document.createElement('div');
   wrap.innerHTML = `<div class="card">
@@ -679,7 +768,7 @@ function renderSuivi(){
     </div>
     <div class="row">
       <div class="field"><label>Date</label><input type="date" id="sv_date" value="${date}"></div>
-      <div class="field"><label>Personne</label><select id="sv_personne"><option ${personne==='Omar'?'selected':''}>Omar</option><option ${personne==='Meryem'?'selected':''}>Meryem</option></select></div>
+      <div class="field"><label>Personne</label><div class="out" style="margin:0;"><span>Profil actif</span><b>${personne}</b></div></div>
       <div class="field"><label>Poids réel (kg)</label><input type="number" step="0.1" id="sv_poids" value="${getPoidsReel(personne,date)}"></div>
     </div>
     <div class="tablewrap"><table id="sv_table"></table></div>
@@ -690,7 +779,6 @@ function renderSuivi(){
   app.appendChild(wrap);
 
   wrap.querySelector('#sv_date').addEventListener('change', e=>{ renderSuivi._date=e.target.value; renderSuivi(); });
-  wrap.querySelector('#sv_personne').addEventListener('change', e=>{ renderSuivi._personne=e.target.value; renderSuivi(); });
   wrap.querySelector('#sv_poids').addEventListener('change', e=>{
     setPoidsReel(personne, date, parseFloat(e.target.value)||0);
     save(); renderSuivi();
@@ -773,6 +861,7 @@ function importBackup(file){
     if(!state.poids) state.poids = [];
     if(!state.modeles) state.modeles = [];
     if(!state.micros) state.micros = JSON.parse(JSON.stringify(SEED_MICROS));
+    state = normalizeState(state);
     save();
     alert("Sauvegarde importée avec succès.");
     renderAll();
@@ -792,7 +881,7 @@ async function manualRefresh(){
         if(remote && remote.payload){
           applyingRemoteUpdate = true;
           try{
-            state = JSON.parse(remote.payload);
+            state = normalizeState(JSON.parse(remote.payload));
             localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
           } finally { applyingRemoteUpdate = false; }
         }
@@ -813,6 +902,10 @@ async function manualRefresh(){
   }
   location.reload();
 }
+document.getElementById('globalProfil').addEventListener('change', (e)=>{
+  state.profilActif = e.target.value;
+  save(); renderAll();
+});
 document.getElementById('btnRefresh').addEventListener('click', manualRefresh);
 document.getElementById('btnExport').addEventListener('click', exportBackup);
 document.getElementById('btnImport').addEventListener('click', ()=> document.getElementById('fileImport').click());
