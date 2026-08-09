@@ -337,6 +337,17 @@ function normalizeState(s){
     s.aliments.forEach(a=>{
       METRICS.forEach(m=>{ if(a[m.key]===undefined || a[m.key]===null) a[m.key] = 0; });
     });
+    // Rattrape les ingrédients "de base" ajoutés après la première installation (ex: Huile
+    // d'olive, Blanc d'oeuf) : sans ça, un profil qui a déjà des données locales/cloud ne
+    // reçoit jamais les nouveaux ingrédients de SEED_ALIMENTS, seule une installation neuve
+    // en profiterait. On les ajoute par nom, sans écraser/dupliquer ce qui existe déjà.
+    const nomsExistants = new Set(s.aliments.map(a=>a.nom));
+    SEED_ALIMENTS.forEach(seed=>{
+      if(!nomsExistants.has(seed.nom)){
+        s.aliments.push({id:uid('al'), ...seed});
+        nomsExistants.add(seed.nom);
+      }
+    });
   }
   return s;
 }
