@@ -195,6 +195,7 @@ const METRICS = [
   {key:'gluc',   label:'Glucides',    unit:'g',     type:'cap',   dec:1},
   {key:'sucres', label:'Sucres',      unit:'g',     type:'cap',   dec:1},
   {key:'lip',    label:'Lipides',     unit:'g',     type:'cap',   dec:1},
+  {key:'sat',    label:'Acides gras saturés', unit:'g', type:'cap', dec:1},
   {key:'fibres', label:'Fibres',      unit:'g',     type:'floor', dec:1},
   {key:'sel',    label:'Sel',         unit:'g',     type:'cap',   dec:2},
   {key:'vitc',   label:'Vit. C',      unit:'mg',    type:'floor', dec:1},
@@ -209,7 +210,7 @@ const METRICS = [
   {key:'k',      label:'Potassium',   unit:'mg',    type:'floor', dec:0},
   {key:'na',     label:'Sodium',      unit:'mg',    type:'cap',   dec:0},
 ];
-const MACRO_KEYS = ['kcal','prot','gluc','sucres','lip','fibres','sel'];
+const MACRO_KEYS = ['kcal','prot','gluc','sucres','lip','sat','fibres','sel'];
 const CRENEAUX = ['Petit-déjeuner','Déjeuner','Dîner','Collation 1','Collation 2'];
 const STORAGE_KEY = 'suiviAlimentaireData_v1';
 
@@ -491,6 +492,9 @@ function computeTargets(personne){
   const kcalObj = Math.max(tdee - o.deficit, 1400);
   const prot = o.protRatio * o.poids;
   const lip = (kcalObj * o.lipRatio) / 9;
+  // Acides gras saturés : recommandation OMS de limiter les graisses saturées à moins de
+  // 10% de l'apport calorique total — plafond indicatif, sous-partie des lipides ci-dessus.
+  const sat = (kcalObj * 0.10) / 9;
   const gluc = Math.max((kcalObj - prot*4 - lip*9) / 4, 0);
   const fibres = (kcalObj/1000) * 14;
   // Sucres : recommandation OMS de limiter les sucres libres à moins de 10% de l'apport
@@ -501,7 +505,7 @@ function computeTargets(personne){
   const eau = o.poids * 0.033;
   const micros = state.micros[personne];
   return {
-    bmr:b, tdee, kcal:kcalObj, prot, lip, gluc, sucres, fibres, sel, eau,
+    bmr:b, tdee, kcal:kcalObj, prot, lip, sat, gluc, sucres, fibres, sel, eau,
     vitc:micros.vitc, vitd:micros.vitd, vita:micros.vita, vite:micros.vite, vitb12:micros.vitb12,
     ca:micros.ca, fe:micros.fe, mg:micros.mg, zn:micros.zn, k:micros.k, na:micros.na
   };
@@ -540,6 +544,7 @@ function offProductToAliment(p){
     gluc: n['carbohydrates_100g'] ?? 0,
     sucres: n['sugars_100g'] ?? 0,
     lip: n['fat_100g'] ?? 0,
+    sat: n['saturated-fat_100g'] ?? 0,
     fibres: n['fiber_100g'] ?? 0,
     sel: Math.round(sel*100)/100,
     na: n['sodium_100g'] ? Math.round(n['sodium_100g']*1000) : 0,
@@ -879,6 +884,7 @@ function renderObjectifs(){
       <div class="out"><span><strong>Objectif calorique</strong></span><b>${fmt(targets.kcal,0)} kcal/j</b></div>
       <div class="out"><span>Protéines</span><b>${fmt(targets.prot,1)} g/j</b></div>
       <div class="out"><span>Lipides</span><b>${fmt(targets.lip,1)} g/j</b></div>
+      <div class="out"><span>Acides gras saturés (max indicatif)</span><b>${fmt(targets.sat,1)} g/j</b></div>
       <div class="out"><span>Glucides</span><b>${fmt(targets.gluc,1)} g/j</b></div>
       <div class="out"><span>Sucres (max indicatif)</span><b>${fmt(targets.sucres,1)} g/j</b></div>
       <div class="out"><span>Fibres</span><b>${fmt(targets.fibres,1)} g/j</b></div>
@@ -1408,7 +1414,7 @@ function renderRepas(){
     html += `<p class="muted">Aucun repas enregistré pour cette date.</p>`;
   } else {
     html += `<div class="out" style="margin-top:10px;"><span><strong>TOTAL DU JOUR</strong></span>
-      <b>${fmt(fullTotal.kcal,0)} kcal · ${fmt(fullTotal.prot,1)}g prot · ${fmt(fullTotal.gluc,1)}g gluc (dont ${fmt(fullTotal.sucres,1)}g sucres) · ${fmt(fullTotal.lip,1)}g lip · ${fmt(fullTotal.fibres,1)}g fibres · ${fmt(fullTotal.sel,2)}g sel</b></div>`;
+      <b>${fmt(fullTotal.kcal,0)} kcal · ${fmt(fullTotal.prot,1)}g prot · ${fmt(fullTotal.gluc,1)}g gluc (dont ${fmt(fullTotal.sucres,1)}g sucres) · ${fmt(fullTotal.lip,1)}g lip (dont ${fmt(fullTotal.sat,1)}g saturés) · ${fmt(fullTotal.fibres,1)}g fibres · ${fmt(fullTotal.sel,2)}g sel</b></div>`;
   }
   journalDiv.innerHTML = html;
   journalDiv.querySelectorAll('[data-deljr]').forEach(b=>{
@@ -1600,6 +1606,7 @@ const VOICE_METRIC_MAP = [
   ['gluc',   ['glucide','glucides']],
   ['sucres', ['sucre','sucres']],
   ['lip',    ['lipide','lipides','graisse','graisses']],
+  ['sat',    ['sature','satures','graisse saturee','graisses saturees','acide gras sature','acides gras satures']],
   ['fibres', ['fibre','fibres']],
   ['sel',    ['sel']],
   ['na',     ['sodium']],
@@ -1614,7 +1621,7 @@ const VOICE_METRIC_MAP = [
   ['vite',   ['vitamine e']],
   ['vitb12', ['vitamine b12','b12']]
 ];
-const VOICE_METRIC_WORDS_RE = '(?:kcal|calories?|kilocalories?|proteines?|glucides?|sucres?|lipides?|graisses?|fibres?|sodium|sel|calcium|fer|magnesium|zinc|potassium|vitamine [a-e]|vitamine b12)';
+const VOICE_METRIC_WORDS_RE = '(?:kcal|calories?|kilocalories?|proteines?|glucides?|sucres?|lipides?|graisses?|satures?|saturees?|fibres?|sodium|sel|calcium|fer|magnesium|zinc|potassium|vitamine [a-e]|vitamine b12)';
 function voiceExtractMetrics(text){
   const found = {};
   VOICE_METRIC_MAP.forEach(([key, words])=>{
@@ -1876,6 +1883,7 @@ function voiceSyntaxHelp(tab){
       • <code>[X] grammes de glucides</code><br>
       • <code>[X] grammes de sucres</code><br>
       • <code>[X] grammes de lipides</code><br>
+      • <code>[X] grammes de saturés</code><br>
       • <code>[X] grammes de fibres</code><br>
       • <code>[X] grammes de sel</code><br>
       • <code>[X] sodium</code>, <code>calcium</code>, <code>fer</code>, <code>magnésium</code>, <code>zinc</code>, <code>potassium</code><br>
